@@ -1,0 +1,19 @@
+# ---- 通用 ----
+.DS_Store
+*.iml
+.idea/
+
+# ---- 构建产物 ----
+build/
+dist/
+
+# ---- Android ----
+.gradle/
+local.properties
+captures/
+.externalNativeBuild
+.cxx
+
+# ---- iOS ----
+xcuserdata/
+DerivedData/
