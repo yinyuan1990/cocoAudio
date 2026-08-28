@@ -1,8 +1,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 
-// 默认指向已部署的联调服务器；可在顶部输入框修改
-const base = ref(localStorage.getItem('xs_base') || 'http://8.162.5.160:40000')
+// 服务器地址：从服务器托管打开时用当前源，本地 dev(5173) 用线上默认
+const defaultBase = (typeof location !== 'undefined' && location.port !== '5173' && location.protocol.startsWith('http'))
+  ? location.origin : 'http://8.162.5.160:40000'
+const base = ref(localStorage.getItem('xs_base') || defaultBase)
+const token = ref(localStorage.getItem('xs_token') || '')
+const authed = computed(() => !!token.value)
+
+const loginForm = reactive({ user: 'admin', pass: '' })
+const loginErr = ref('')
+
 const connected = ref(false)
 const stats = reactive({ mode: '-', deviceCount: 0, appCount: 0, activeCalls: 0, uptimeSec: 0, devices: [] })
 const logs = ref([])
@@ -10,28 +18,39 @@ const sessions = ref([])
 const sessionDetail = ref(null)
 let ws = null, poll = null
 
-const wsUrl = computed(() => base.value.replace(/^http/, 'ws').replace(/\/$/, '') + '/admin')
 const apiUrl = (p) => base.value.replace(/\/$/, '') + p
+const wsUrl = computed(() => base.value.replace(/^http/, 'ws').replace(/\/$/, '') + '/admin?token=' + token.value)
+const hdr = () => ({ 'Content-Type': 'application/json', 'x-token': token.value })
 
 const uptimeText = computed(() => {
-  const s = stats.uptimeSec
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
+  const s = stats.uptimeSec, h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
   return `${h}h ${m}m ${sec}s`
 })
 
-async function fetchStats() {
-  try {
-    const r = await fetch(apiUrl('/api/stats'))
-    Object.assign(stats, await r.json())
-  } catch (e) { /* ignore */ }
+async function api(path, opts = {}) {
+  const r = await fetch(apiUrl(path), { ...opts, headers: { ...hdr(), ...(opts.headers || {}) } })
+  if (r.status === 401) { logout(); throw new Error('unauthorized') }
+  return r
 }
 
-async function fetchSessions() {
-  try { sessions.value = await (await fetch(apiUrl('/api/sessions'))).json() } catch (e) { /* ignore */ }
+async function login() {
+  loginErr.value = ''
+  try {
+    const r = await fetch(apiUrl('/api/login'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user: loginForm.user, pass: loginForm.pass }) })
+    const j = await r.json()
+    if (j.ok) { token.value = j.token; localStorage.setItem('xs_token', j.token); localStorage.setItem('xs_base', base.value); start() }
+    else loginErr.value = j.error || '登录失败'
+  } catch (e) { loginErr.value = '无法连接服务器，请检查地址' }
 }
-async function openSession(id) {
-  try { sessionDetail.value = await (await fetch(apiUrl('/api/session?id=' + id))).json() } catch (e) { /* ignore */ }
-}
+function logout() { token.value = ''; localStorage.removeItem('xs_token'); if (ws) ws.close(); connected.value = false }
+
+async function fetchStats() { try { Object.assign(stats, await (await api('/api/stats')).json()) } catch (e) {} }
+async function fetchSessions() { try { sessions.value = await (await api('/api/sessions')).json() } catch (e) {} }
+async function openSession(id) { try { sessionDetail.value = await (await api('/api/session?id=' + id)).json() } catch (e) {} }
+async function setMode(mode) { await api('/api/mode', { method: 'POST', body: JSON.stringify({ mode }) }); fetchStats() }
+async function cmd(device_id, payload) { await api('/api/command', { method: 'POST', body: JSON.stringify({ device_id, ...payload }) }) }
+async function kick(device_id) { await api('/api/kick', { method: 'POST', body: JSON.stringify({ device_id }) }); setTimeout(fetchStats, 300) }
+function askVolume(id) { const v = prompt('设置咪头音量 (40/60/80/100)', '80'); if (v) cmd(id, { type: 'set_volume', volume: Number(v) }) }
 
 function connectAdmin() {
   if (ws) ws.close()
@@ -42,54 +61,48 @@ function connectAdmin() {
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data)
       if (msg.type === 'hello') { Object.assign(stats, msg.stats); logs.value = msg.logs.slice().reverse() }
-      else if (msg.type === 'log') { logs.value.unshift({ time: msg.time, text: msg.text }); if (logs.value.length > 200) logs.value.pop(); }
-      else if (msg.type === 'event') { fetchStats() }
+      else if (msg.type === 'log') { logs.value.unshift({ time: msg.time, text: msg.text }); if (logs.value.length > 200) logs.value.pop() }
+      else if (msg.type === 'event') { fetchStats(); fetchSessions() }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {}
 }
 
-function reconnect() { localStorage.setItem('xs_base', base.value); fetchStats(); connectAdmin() }
+function start() { fetchStats(); fetchSessions(); connectAdmin(); if (!poll) poll = setInterval(() => { fetchStats(); fetchSessions() }, 3000) }
 
-async function setMode(mode) {
-  await fetch(apiUrl('/api/mode'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) })
-  fetchStats()
-}
-
-async function cmd(device_id, payload) {
-  await fetch(apiUrl('/api/command'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id, ...payload }) })
-}
-async function kick(device_id) {
-  await fetch(apiUrl('/api/kick'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id }) })
-  setTimeout(fetchStats, 300)
-}
-function askVolume(id) {
-  const v = prompt('设置咪头音量 (40/60/80/100)', '80')
-  if (v) cmd(id, { type: 'set_volume', volume: Number(v) })
-}
-function fmtSince(ts) {
-  if (!ts) return '-'
-  const s = Math.floor((Date.now() - ts) / 1000)
-  const m = Math.floor(s / 60), sec = s % 60
-  return m > 0 ? `${m}分${sec}秒` : `${sec}秒`
-}
-function fmtTime(ts) { return new Date(ts).toLocaleTimeString() }
-
+function fmtSince(ts) { if (!ts) return '-'; const s = Math.floor((Date.now() - ts) / 1000), m = Math.floor(s / 60), sec = s % 60; return m > 0 ? `${m}分${sec}秒` : `${sec}秒` }
 function fmtDur(s) { if (!s.disconnectedAt) return '在线'; return Math.round((s.disconnectedAt - s.connectedAt) / 1000) + '秒' }
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString() }
 function roleLabel(r) { return r === 'device' ? '设备' : r === 'app' ? 'App' : '未知' }
 
-onMounted(() => { fetchStats(); fetchSessions(); connectAdmin(); poll = setInterval(() => { fetchStats(); fetchSessions() }, 3000) })
+onMounted(() => { if (authed.value) start() })
 onBeforeUnmount(() => { clearInterval(poll); if (ws) ws.close() })
 </script>
 
 <template>
-  <div class="wrap">
+  <!-- 登录 -->
+  <div v-if="!authed" class="login-mask">
+    <div class="login-card">
+      <div class="login-brand"><span class="logo">心声</span> 管理后台</div>
+      <label>服务器地址</label>
+      <input v-model="base" placeholder="http://ip:port" />
+      <label>账号</label>
+      <input v-model="loginForm.user" placeholder="账号" />
+      <label>密码</label>
+      <input v-model="loginForm.pass" type="password" placeholder="密码" @keyup.enter="login" />
+      <div v-if="loginErr" class="login-err">{{ loginErr }}</div>
+      <button class="login-btn" @click="login">登录</button>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div v-else class="wrap">
     <header>
       <div class="brand"><span class="logo">心声</span> 管理后台</div>
       <div class="conn">
-        <input v-model="base" @keyup.enter="reconnect" placeholder="服务器地址 http://ip:port" />
-        <button class="btn" @click="reconnect">连接</button>
         <span class="dot" :class="{ on: connected }"></span>
         <span class="dot-label">{{ connected ? '实时已连接' : '未连接' }}</span>
+        <span class="server-addr">{{ base }}</span>
+        <button class="btn ghost" @click="logout">退出</button>
       </div>
     </header>
 
@@ -158,10 +171,8 @@ onBeforeUnmount(() => { clearInterval(poll); if (ws) ws.close() })
         </div>
         <div class="evlist">
           <div v-for="(e, i) in sessionDetail.events" :key="i" class="evline" :class="e.dir">
-            <span class="lt">{{ fmtTime(e.t) }}</span>
-            <span class="dir">{{ e.dir }}</span>
-            <span class="kind">{{ e.kind }}</span>
-            <span class="detail">{{ e.detail }}</span>
+            <span class="lt">{{ fmtTime(e.t) }}</span><span class="dir">{{ e.dir }}</span>
+            <span class="kind">{{ e.kind }}</span><span class="detail">{{ e.detail }}</span>
           </div>
         </div>
       </div>
@@ -171,9 +182,7 @@ onBeforeUnmount(() => { clearInterval(poll); if (ws) ws.close() })
       <h3>实时事件日志</h3>
       <div class="logs">
         <div v-if="!logs.length" class="empty">暂无日志</div>
-        <div v-for="(l, i) in logs" :key="i" class="logline">
-          <span class="lt">{{ fmtTime(l.time) }}</span><span class="lx">{{ l.text }}</span>
-        </div>
+        <div v-for="(l, i) in logs" :key="i" class="logline"><span class="lt">{{ fmtTime(l.time) }}</span><span class="lx">{{ l.text }}</span></div>
       </div>
     </section>
   </div>
@@ -185,11 +194,21 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 .brand{font-size:20px;font-weight:800;}
 .logo{color:var(--blue);}
 .conn{display:flex;align-items:center;gap:8px;}
-.conn input{width:260px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;outline:none;}
+.server-addr{font-size:12px;color:var(--sub);}
 .btn{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-weight:600;}
+.btn.ghost{background:#fff;color:var(--sub);border:1px solid var(--line);}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--red);}
 .dot.on{background:var(--green);}
 .dot-label{font-size:12px;color:var(--sub);}
+
+.login-mask{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#e9f0ff,#f4f6fb);}
+.login-card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:32px;width:340px;box-shadow:0 20px 50px rgba(30,40,70,.12);}
+.login-brand{font-size:22px;font-weight:800;text-align:center;margin-bottom:22px;}
+.login-card label{display:block;font-size:12px;color:var(--sub);margin:12px 0 6px;}
+.login-card input{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none;}
+.login-card input:focus{border-color:var(--blue);}
+.login-btn{width:100%;margin-top:22px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px;font-weight:700;font-size:15px;}
+.login-err{color:var(--red);font-size:13px;margin-top:12px;text-align:center;}
 
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:22px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;}
@@ -202,6 +221,7 @@ header{display:flex;align-items:center;justify-content:space-between;margin-bott
 
 .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:20px;}
 .panel h3{font-size:15px;margin-bottom:14px;}
+.panel h3 small{font-size:12px;color:var(--sub);font-weight:400;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th,td{text-align:left;padding:11px 10px;border-bottom:1px solid var(--line);}
 th{color:var(--sub);font-weight:600;}
@@ -214,8 +234,6 @@ th{color:var(--sub);font-weight:600;}
 .actions button{padding:6px 10px;border:1px solid var(--line);background:#f8fafc;border-radius:8px;font-size:12px;color:var(--ink);}
 .actions button.warn{color:var(--amber);border-color:#ffe0b3;}
 .actions button.danger{color:var(--red);border-color:#ffd6d3;}
-
-.panel h3 small{font-size:12px;color:var(--sub);font-weight:400;}
 tr.live td{background:#f0fbf5;}
 td.bad{color:var(--red);font-weight:700;}
 .modal{position:fixed;inset:0;background:rgba(20,28,45,.5);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}

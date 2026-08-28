@@ -18,8 +18,15 @@ const { WebSocketServer } = require('ws');
 let mode = process.env.MODE || 'echo';
 const PORT = Number(process.env.PORT) || 8080;
 const LOG_DIR = process.env.LOG_DIR || path.join(__dirname, 'logs');
+const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, 'public');
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'xinsheng2026';
 const START = Date.now();
 try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch {}
+
+const tokens = new Set();
+function makeToken() { const t = Math.random().toString(36).slice(2) + Date.now().toString(36); tokens.add(t); return t; }
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
 
 const devices = new Map();   // device_id -> 设备ws
 const apps = new Set();
@@ -118,9 +125,41 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-token');
   if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   const u = new URL(req.url, 'http://x'); const p = u.pathname;
   const json = (obj, code = 200) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+
+  // 登录
+  if (p === '/api/login' && req.method === 'POST') {
+    const b = await readBody(req);
+    if (b.user === ADMIN_USER && b.pass === ADMIN_PASS) return json({ ok: true, token: makeToken() });
+    return json({ ok: false, error: '账号或密码错误' }, 401);
+  }
+  // 除登录外的 /api 需要 token
+  if (p.startsWith('/api/')) {
+    const token = req.headers['x-token'];
+    if (!token || !tokens.has(token)) return json({ ok: false, error: 'unauthorized' }, 401);
+  }
+
+  // 静态托管管理后台（非 /api 的 GET）
+  if (!p.startsWith('/api/') && req.method === 'GET') {
+    let rel = p === '/' ? '/index.html' : p;
+    let file = path.join(PUBLIC_DIR, rel);
+    if (!file.startsWith(PUBLIC_DIR)) file = path.join(PUBLIC_DIR, 'index.html');
+    fs.readFile(file, (err, data) => {
+      if (err) {
+        fs.readFile(path.join(PUBLIC_DIR, 'index.html'), (e2, idx) => {
+          if (e2) { res.writeHead(404); return res.end('心声服务器运行中（管理后台未部署静态文件）'); }
+          res.writeHead(200, { 'Content-Type': MIME['.html'] }); res.end(idx);
+        });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+      res.end(data);
+    });
+    return;
+  }
 
   if (p === '/api/stats' && req.method === 'GET') return json(stats());
   if (p === '/api/logs' && req.method === 'GET') return json(logs);
@@ -165,7 +204,11 @@ const server = http.createServer(async (req, res) => {
 // ---------------- WebSocket ----------------
 const wss = new WebSocketServer({ server });
 wss.on('connection', (ws, req) => {
-  if ((req.url || '').startsWith('/admin')) { admins.add(ws); send(ws, { type: 'hello', stats: stats(), logs }); ws.on('close', () => admins.delete(ws)); return; }
+  if ((req.url || '').startsWith('/admin')) {
+    const token = new URL(req.url, 'http://x').searchParams.get('token');
+    if (!token || !tokens.has(token)) { ws.close(4401, 'unauthorized'); return; }
+    admins.add(ws); send(ws, { type: 'hello', stats: stats(), logs }); ws.on('close', () => admins.delete(ws)); return;
+  }
   ws.role = 'unknown'; ws.deviceId = null; ws.peer = null;
   newSession(ws, req);
 
