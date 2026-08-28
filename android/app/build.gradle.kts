@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.coco.audio"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.coco.audio"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
