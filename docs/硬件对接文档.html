@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>心声 语音对讲系统 · 硬件对接文档 v1.1</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  :root{
+    --blue:#0a6cff; --ink:#1b2330; --sub:#5b6b82; --line:#e6ebf2; --bg:#f6f8fb;
+    --code-bg:#0e1526; --code-fg:#e6edff; --amber:#a15c00; --amber-bg:#fff6e6; --green:#0a7d43; --green-bg:#e9f9f0;
+    --chip:#eef4ff;
+  }
+  html{scroll-behavior:smooth;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--bg);line-height:1.75;font-size:15px;}
+  .layout{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:250px 1fr;gap:0;}
+  aside{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:30px 18px;border-right:1px solid var(--line);background:#fff;}
+  aside .logo{font-weight:800;font-size:18px;letter-spacing:.5px;}
+  aside .logo span{color:var(--blue);}
+  aside .ver{font-size:12px;color:var(--sub);margin:4px 0 20px;}
+  aside nav a{display:block;color:var(--sub);text-decoration:none;font-size:13.5px;padding:7px 12px;border-radius:8px;margin-bottom:2px;transition:.15s;}
+  aside nav a:hover{background:var(--chip);color:var(--blue);}
+  aside nav a.sub{padding-left:24px;font-size:12.5px;}
+  main{padding:48px 56px 120px;background:#fff;min-height:100vh;}
+  .doc-head{border-bottom:2px solid var(--line);padding-bottom:24px;margin-bottom:36px;}
+  .doc-head h1{font-size:30px;font-weight:800;letter-spacing:.5px;line-height:1.3;}
+  .doc-head .meta{color:var(--sub);font-size:13px;margin-top:12px;}
+  .doc-head .tags{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;}
+  .tag{background:var(--chip);color:var(--blue);font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px;}
+  h2{font-size:22px;font-weight:800;margin:52px 0 18px;padding-top:12px;scroll-margin-top:20px;display:flex;align-items:center;gap:10px;}
+  h2 .no{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;background:var(--blue);color:#fff;border-radius:9px;font-size:15px;flex:none;}
+  h3{font-size:17px;font-weight:700;margin:30px 0 12px;}
+  p{margin:12px 0;} strong{font-weight:700;}
+  ul,ol{margin:12px 0 12px 22px;} li{margin:6px 0;}
+  code{font-family:"SF Mono","JetBrains Mono",Consolas,monospace;background:#eef1f6;color:#b02a5b;padding:2px 7px;border-radius:6px;font-size:13px;}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px;border-radius:12px;overflow:hidden;}
+  th,td{border:1px solid var(--line);padding:10px 14px;text-align:left;vertical-align:top;}
+  th{background:#f1f5fb;font-weight:700;}
+  tr:nth-child(even) td{background:#fafcff;}
+  td code{background:#eef1f6;color:#0a4bb3;}
+  pre{background:var(--code-bg);color:var(--code-fg);padding:20px 22px;border-radius:14px;overflow:auto;margin:18px 0;
+    font-family:"SF Mono","JetBrains Mono",Consolas,monospace;font-size:12.5px;line-height:1.6;}
+  pre.ascii{line-height:1.35;font-size:12px;}
+  .callout{border-radius:14px;padding:16px 20px;margin:20px 0;font-size:14px;}
+  .callout.info{background:#eef4ff;border-left:4px solid var(--blue);}
+  .callout.warn{background:var(--amber-bg);border-left:4px solid #f0a500;}
+  .callout.ok{background:var(--green-bg);border-left:4px solid var(--green);}
+  .callout b{display:block;margin-bottom:4px;}
+  .callout.warn b{color:var(--amber);} .callout.ok b{color:var(--green);} .callout.info b{color:var(--blue);}
+  .verdict{display:inline-block;background:var(--green);color:#fff;font-weight:700;padding:4px 14px;border-radius:20px;font-size:14px;}
+  .ok-cell{color:var(--green);font-weight:700;}
+  .server-box{background:linear-gradient(135deg,#0a6cff,#00c6ff);color:#fff;border-radius:16px;padding:22px 26px;margin:8px 0 4px;}
+  .server-box .lbl{font-size:12px;opacity:.85;letter-spacing:1px;}
+  .server-box .addr{font-size:26px;font-weight:800;font-family:"SF Mono",Consolas,monospace;margin:6px 0;}
+  .server-box .st{font-size:13px;opacity:.9;}
+  .doc-foot{margin-top:60px;padding-top:20px;border-top:1px solid var(--line);color:var(--sub);font-size:12.5px;}
+  @media print{aside{display:none;} .layout{grid-template-columns:1fr;} main{padding:0;}}
+  @media (max-width:900px){.layout{grid-template-columns:1fr;} aside{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);} main{padding:28px 20px 80px;}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="logo"><span>心声</span> Voice</div>
+    <div class="ver">硬件对接文档 · v1.1</div>
+    <nav>
+      <a href="#s0">0. 联调服务器（已就绪）</a>
+      <a href="#s1">1. 系统是做什么的</a>
+      <a href="#s2">2. 系统架构</a>
+      <a href="#s3">3. 通话完整流程</a>
+      <a href="#s4">4. 语音编解码规范 ★</a>
+      <a href="#s5">5. 信令协议</a>
+      <a class="sub" href="#s5-1">5.1 App ↔ 服务器</a>
+      <a class="sub" href="#s5-2">5.2 设备 ↔ 服务器（本次重点）</a>
+      <a href="#s6">6. 硬件功能清单</a>
+      <a href="#s7">7. ESP32-A1S 匹配性</a>
+      <a href="#s8">8. 快速联调步骤</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="doc-head">
+      <h1>心声 语音对讲系统 —— 硬件对接文档</h1>
+      <div class="meta">版本：v1.1　|　产品：心声（远程语音对讲）　|　面向：硬件（ESP32）开发方</div>
+      <div class="callout ok" style="margin-top:16px;">
+        <b>好消息：联调服务器已经搭好并验证通过，硬件现在就能连进来调试。</b>
+        我方已按 App 端协议反推、实现并部署了一台服务器（Docker），App↔服务器 全流程自动化测试 <strong>9/9 通过</strong>（含真实的 251 字节 ADPCM 语音帧往返）。设备↔服务器 协议也已由我方定义并跑通，见第 5.2 节。
+      </div>
+      <div class="tags">
+        <span class="tag">WebSocket</span><span class="tag">IMA-ADPCM 8kHz</span><span class="tag">语音对讲</span><span class="tag">ESP32-A1S</span><span class="tag">联调服务器已就绪</span>
+      </div>
+    </div>
+
+    <!-- 0 -->
+    <h2 id="s0"><span class="no">0</span>联调服务器（已就绪，直接连）</h2>
+    <div class="server-box">
+      <div class="lbl">WEBSOCKET 服务器地址</div>
+      <div class="addr">ws://8.162.5.160:40000</div>
+      <div class="st">状态：已部署（Docker，开机自启）　·　默认 echo 回环模式，联调硬件时切 relay 中转模式</div>
+    </div>
+    <ul>
+      <li><strong>echo 模式</strong>（默认）：服务器把收到的语音原样回传，用来单独验证一端（App 或设备）的音频通道是否正常。</li>
+      <li><strong>relay 模式</strong>：服务器在 App 和设备之间转发信令与语音，用于真正的双方对讲联调。接硬件时我方切到此模式。</li>
+    </ul>
+    <div class="callout info"><b>给硬件同学：</b>你们的 ESP32 直接连 <code>ws://8.162.5.160:40000</code>，按第 5.2 节的设备协议注册、接听、收发语音即可，不必等任何第三方。</div>
+
+    <!-- 1 -->
+    <h2 id="s1"><span class="no">1</span>系统是做什么的</h2>
+    <p><strong>心声</strong> 是一套<strong>基于 WebSocket 的远程语音对讲（VoIP 对讲机）</strong>系统。手机 App 输入一个 <strong>6 位设备 ID</strong> 呼叫对应的硬件设备，接通后双向实时传语音（手机说话→设备喇叭，设备麦克风→手机听筒）。App 还能远程管理设备：查在线、扫描/配置 WiFi、调麦克风音量、切换联网方式、恢复出厂、配对。</p>
+    <p>三个角色：<strong>手机 App（主叫/管理端）</strong> — <strong>云服务器（转发中枢）</strong> — <strong>硬件设备 ESP32（被叫/终端）</strong>。App 与设备不直接通信，全部经服务器转发。</p>
+    <table>
+      <tr><th style="width:180px">项目</th><th>值</th></tr>
+      <tr><td>通信方式</td><td>WebSocket 长连接</td></tr>
+      <tr><td>联调服务器</td><td><code>ws://8.162.5.160:40000</code>（我方已部署）</td></tr>
+      <tr><td>信令格式</td><td>JSON 文本帧</td></tr>
+      <tr><td>语音格式</td><td><strong>二进制帧</strong>，IMA-ADPCM，8kHz / 单声道 / 16bit</td></tr>
+      <tr><td>设备标识</td><td>6 位数字 ID</td></tr>
+      <tr><td>心跳</td><td>每 15s 发 <code>{"type":"ping"}</code>，5s 内无回包则重连</td></tr>
+    </table>
+
+    <!-- 2 -->
+    <h2 id="s2"><span class="no">2</span>系统架构</h2>
+<pre class="ascii">┌─────────────┐   WebSocket(JSON信令 + 二进制语音)   ┌──────────────┐   WebSocket   ┌────────────────┐
+│  心声 App    │ ───────────────────────────────────▶ │  云服务器      │ ◀───────────▶ │ 硬件设备(ESP32) │
+│ (安卓/iOS)   │ ◀─────────────────────────────────── │ 8.162.5.160   │   (转发)      │  被叫/终端      │
+└─────────────┘                                       │   :40000      │               └────────────────┘
+                                                       └──────────────┘
+        主叫 / 管理端                                     我方已部署验证              硬件方开发（本次重点）</pre>
+    <ul>
+      <li>App 连上服务器后发 <code>connect_app</code> 表明身份。</li>
+      <li>设备连上服务器后发 <code>connect_device</code> + 自己的 6 位 ID 注册（见 5.2）。</li>
+      <li>服务器按 <code>device_id</code> 在两端之间转发信令与语音。</li>
+    </ul>
+
+    <!-- 3 -->
+    <h2 id="s3"><span class="no">3</span>通话完整流程（时序）</h2>
+<pre class="ascii">App                          服务器(8.162.5.160:40000)       设备(ESP32)
+ │  {"type":"connect_app"}      │                             │
+ │ ───────────────────────────▶│◀── {"type":"connect_device","device_id":"123456"} ──│ 开机注册
+ │  查询在线 check_device_status │                             │
+ │ ───────────────────────────▶│                             │
+ │  {"type":"device_status",online:true} ◀────────────────────│
+ │                              │                             │
+ │  呼叫 {"type":"call_request","device_id":"123456"}          │
+ │ ───────────────────────────▶│ ──{"type":"incoming_call"}──▶│ 设备响铃/接听
+ │  {"type":"call_connected"}   │◀──{"type":"call_accept"}─────│
+ │ ◀───────────────────────────│                             │
+ │ ══════ 二进制语音帧(ADPCM 251字节) 双向实时传输 ═══════════════│
+ │  App麦克风→ADPCM→ ─────────▶ │ ─────────────────────────▶ │ →ES8388→喇叭
+ │  听筒←PCM←ADPCM ◀────────── │ ◀───────────────────────── │ ←麦克风←ES8388
+ │  挂断 {"type":"call_end"}     │ ──{"type":"call_ended"}────▶│ 停止音频</pre>
+    <ul>
+      <li><strong>呼叫超时</strong>：App 发起后 <strong>50 秒</strong>内未接通自动挂断。</li>
+      <li><strong>呼叫失败</strong>：服务器回 <code>{"type":"call_result","success":false,"error":"..."}</code>。</li>
+    </ul>
+
+    <!-- 4 -->
+    <h2 id="s4"><span class="no">4</span>语音编解码规范（★ 端到端必须完全一致）</h2>
+    <div class="callout warn"><b>这是硬件端必须逐字节对齐的部分</b>格式已固定并验证。设备收到的、发出的都必须是这个格式。</div>
+    <h3>4.1 PCM 参数</h3>
+    <table>
+      <tr><th style="width:220px">参数</th><th>值</th></tr>
+      <tr><td>采样率</td><td>8000 Hz</td></tr>
+      <tr><td>声道 / 位深</td><td>单声道 / 16bit 有符号，小端</td></tr>
+      <tr><td>每帧采样点 / 字节</td><td>480 点 / 960 字节</td></tr>
+      <tr><td>每帧时长</td><td>60 ms</td></tr>
+    </table>
+    <h3>4.2 ADPCM 打包格式（每个 WebSocket 二进制帧 = 1 个 251 字节包）</h3>
+    <table>
+      <tr><th>偏移</th><th>长度</th><th>内容</th><th>说明</th></tr>
+      <tr><td>0–3</td><td>4</td><td>魔数 <code>"ADPC"</code> = <code>0x41 0x44 0x50 0x43</code></td><td>帧同步头</td></tr>
+      <tr><td>4</td><td>1</td><td>版本 = <code>0x01</code></td><td></td></tr>
+      <tr><td>5</td><td>1</td><td>采样数低字节 = <code>0xE0</code></td><td rowspan="2">480 = 0x01E0，<code>samples=data[5]|(data[6]&lt;&lt;8)</code></td></tr>
+      <tr><td>6</td><td>1</td><td>采样数高字节 = <code>0x01</code></td></tr>
+      <tr><td>7–8</td><td>2</td><td>首个 PCM 采样值（int16 小端）</td><td>预测器初值 valpred</td></tr>
+      <tr><td>9</td><td>1</td><td>步长索引初值（0–88）</td><td></td></tr>
+      <tr><td>10</td><td>1</td><td>保留 = <code>0x00</code></td><td></td></tr>
+      <tr><td>11–250</td><td>240</td><td>ADPCM 数据（479 个 4bit 码，低 nibble 在前）</td><td></td></tr>
+    </table>
+    <div class="callout info"><b>要点</b>标准 IMA/DVI 4-bit ADPCM；步长索引在帧间连续传递，通话开始复位为 0；解析时以 251 字节为单位、用魔数 <code>ADPC</code> 对齐重同步。参考 C 常量表见工程 <code>AdpcmCodec</code>。</div>
+
+    <!-- 5 -->
+    <h2 id="s5"><span class="no">5</span>信令协议（JSON 文本帧）</h2>
+    <h3 id="s5-1">5.1 App ↔ 服务器</h3>
+    <table>
+      <tr><th>方向</th><th>type</th><th>字段</th><th>含义</th></tr>
+      <tr><td>App→服务器</td><td><code>connect_app</code></td><td>—</td><td>App 上线自报身份</td></tr>
+      <tr><td>App→服务器</td><td><code>ping</code></td><td>—</td><td>心跳（每 15s）</td></tr>
+      <tr><td>App→服务器</td><td><code>check_device_status</code></td><td><code>device_id</code></td><td>查设备是否在线</td></tr>
+      <tr><td>App→服务器</td><td><code>call_request</code></td><td><code>device_id</code></td><td>发起呼叫</td></tr>
+      <tr><td>App→服务器</td><td><code>call_end</code></td><td>—</td><td>挂断</td></tr>
+      <tr><td>App→服务器</td><td><code>wifi_scan</code></td><td><code>device_id</code></td><td>让设备扫描 WiFi</td></tr>
+      <tr><td>App→服务器</td><td><code>wifi_config</code></td><td><code>device_id,ssid,password</code></td><td>下发 WiFi 配置</td></tr>
+      <tr><td>App→服务器</td><td><code>set_volume</code></td><td><code>device_id,volume</code>(40/60/80/100)</td><td>设麦克风音量</td></tr>
+      <tr><td>App→服务器</td><td><code>factory_reset</code></td><td><code>device_id</code></td><td>恢复出厂</td></tr>
+      <tr><td>App→服务器</td><td><code>switch_network</code></td><td><code>device_id,mode</code>(wifi/4g)</td><td>切换联网方式</td></tr>
+      <tr><td>App→服务器</td><td><code>pairing_gpio</code></td><td><code>device_id,level</code>(0/1)</td><td>配对按键（按下0/松开1）</td></tr>
+      <tr><td>服务器→App</td><td><code>device_status</code> / <code>device_online</code> / <code>device_offline</code></td><td><code>device_id,online</code></td><td>在线状态</td></tr>
+      <tr><td>服务器→App</td><td><code>call_connected</code> / <code>call_ended</code> / <code>call_result</code></td><td><code>success,error</code></td><td>通话状态</td></tr>
+      <tr><td>服务器→App</td><td><code>wifi_list</code></td><td><code>data:[{ssid,rssi}]</code></td><td>WiFi 扫描结果</td></tr>
+      <tr><td>服务器→App</td><td><code>wifi_test_result</code></td><td><code>success</code></td><td>配网测试结果</td></tr>
+    </table>
+
+    <h3 id="s5-2">5.2 设备 ↔ 服务器（★ 本次硬件重点，已定义并验证）</h3>
+    <div class="callout ok"><b>这套协议我方已实现并跑通</b>硬件按下表做即可与联调服务器对接。字段简单、最小可用。</div>
+    <table>
+      <tr><th>方向</th><th>报文</th><th>说明</th></tr>
+      <tr><td>设备→服务器</td><td><code>{"type":"connect_device","device_id":"123456"}</code></td><td>开机注册上线（6 位 ID）</td></tr>
+      <tr><td>设备→服务器</td><td><code>{"type":"ping"}</code></td><td>心跳保活（建议每 15s）</td></tr>
+      <tr><td>服务器→设备</td><td><code>{"type":"incoming_call"}</code></td><td>有 App 呼叫本机</td></tr>
+      <tr><td>设备→服务器</td><td><code>{"type":"call_accept"}</code></td><td>设备接听（服务器随即通知 App call_connected）</td></tr>
+      <tr><td>双向</td><td>二进制帧（251 字节 ADPCM 包）</td><td>语音，格式见第 4 章</td></tr>
+      <tr><td>服务器→设备</td><td><code>{"type":"call_ended"}</code></td><td>通话结束，设备停止音频</td></tr>
+      <tr><td>服务器→设备</td><td><code>wifi_scan / wifi_config / set_volume / factory_reset / switch_network / pairing_gpio</code></td><td>管理指令（字段同 App 侧，relay 模式透传）；设备处理后可回相应结果</td></tr>
+    </table>
+
+    <!-- 6 -->
+    <h2 id="s6"><span class="no">6</span>硬件端需要实现的功能</h2>
+    <ol>
+      <li><strong>联网</strong>：开机连 WiFi（保存的 SSID/密码），连不上进入配网模式（首次配网方式：AP 热点或蓝牙，由设备端设计）。</li>
+      <li><strong>WebSocket 客户端</strong>：连 <code>ws://8.162.5.160:40000</code>，断线自动重连 + 心跳。</li>
+      <li><strong>注册</strong>：连上后发 <code>connect_device</code> + 6 位 ID。</li>
+      <li><strong>来电/接听</strong>：收 <code>incoming_call</code> → 回 <code>call_accept</code> → 进入通话。</li>
+      <li><strong>音频</strong>：ES8388 采集 8kHz PCM → IMA-ADPCM 编码 → 251 字节二进制帧发送；收二进制帧 → 解码 → 喇叭放音。</li>
+      <li><strong>管理指令</strong>：WiFi 扫描/配置、麦克风音量、恢复出厂、切网、配对 GPIO。</li>
+      <li><strong>挂断/掉线</strong>：收 <code>call_ended</code> 或断线时停止音频、回到空闲。</li>
+    </ol>
+    <div class="callout warn"><b>务必注意：回声/啸叫</b>App 端<strong>没有做回声消除(AEC)</strong>。若设备用外放喇叭，喇叭声会被自己麦克风收回造成回声/啸叫。设备端需自行做 AEC，或用听筒/半双工方案。这是最容易翻车的点。</div>
+
+    <!-- 7 -->
+    <h2 id="s7"><span class="no">7</span>ESP32-A1S 匹配性结论</h2>
+    <p><span class="verdict">结论：匹配 ✔（WiFi 语音对讲完全够用）</span></p>
+    <p>淘宝的 <strong>安信可 ESP32-A1S / ESP32-Audio-Kit</strong>（ESP32 + ES8388 音频编解码芯片）：</p>
+    <table>
+      <tr><th>需求</th><th>是否满足</th></tr>
+      <tr><td>WiFi 联网（WebSocket）</td><td class="ok-cell">✔ 802.11 b/g/n</td></tr>
+      <tr><td>麦克风采集</td><td class="ok-cell">✔ ES8388 双 ADC + 麦放</td></tr>
+      <tr><td>喇叭放音</td><td class="ok-cell">✔ ES8388 双 DAC + 功放</td></tr>
+      <tr><td>8kHz/16bit 单声道</td><td class="ok-cell">✔ I2S 可配置</td></tr>
+      <tr><td>IMA-ADPCM 编解码</td><td class="ok-cell">✔ 纯软件，双核 240MHz 绰绰有余</td></tr>
+      <tr><td>麦克风音量调节</td><td class="ok-cell">✔ ES8388 寄存器可调</td></tr>
+    </table>
+    <h3>需注意</h3>
+    <ol>
+      <li><strong>“切换 4G”</strong>：A1S 只有 WiFi、无蜂窝。要 4G 版需外挂 4G 模组（UART）。纯 A1S 只能做 WiFi 版。</li>
+      <li><strong>买 ES8388 版本</strong>（AC101 版已停产）。</li>
+      <li><strong>引脚随板子版本不同</strong>，以到手原理图 V2.3 为准（常见：I2C SDA=33/SCL=32，I2S BCK=27/WS=25/DOUT=26，功放使能 GPIO21）。</li>
+      <li><strong>供电</strong> 5V/≥1A，否则 WiFi 发射时易掉电重启。</li>
+    </ol>
+    <div class="callout ok"><b>打样建议</b>直接买 ESP32-Audio-Kit（ES8388 版）即可连我们的联调服务器跑通 WiFi 语音对讲全流程。</div>
+
+    <!-- 8 -->
+    <h2 id="s8"><span class="no">8</span>快速联调步骤（硬件方）</h2>
+    <ol>
+      <li>ESP32 连上 WiFi，建立到 <code>ws://8.162.5.160:40000</code> 的 WebSocket 连接。</li>
+      <li>发送 <code>{"type":"connect_device","device_id":"123456"}</code> 注册（ID 与 App 里输入的一致）。</li>
+      <li>用 App（心声）输入 <code>123456</code> 呼叫；设备收到 <code>incoming_call</code> 后回 <code>call_accept</code>。</li>
+      <li>进入通话：麦克风 PCM→ADPCM→发二进制；收二进制→解码→喇叭。先用<strong>听筒或小音量</strong>避免啸叫。</li>
+      <li>联调时联系我方把服务器切到 <strong>relay 模式</strong>（默认 echo 用于单端自测）。</li>
+    </ol>
+    <div class="callout info"><b>先做最小验证</b>硬件同学可以先不接 App：连服务器（echo 模式）后，自己发一帧 251 字节 ADPCM，能原样收回即说明"连接+收发二进制"通道正常，再逐步加入真实音频。</div>
+
+    <div class="doc-foot">
+      心声 语音对讲系统 · 硬件对接文档 v1.1 · 联调服务器 ws://8.162.5.160:40000（已部署验证）· 协议依据 App 反编译源码 + 我方服务器实现
+    </div>
+  </main>
+</div>
+</body>
+</html>

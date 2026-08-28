@@ -1,17 +1,13 @@
-//
-//  AudioApp.swift
-//  Audio
-//
-//  Created by 陈源 on 8/28/26.
-//
-
 import SwiftUI
+import AVFoundation
 
 @main
 struct AudioApp: App {
+    init() {
+        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+        WSClient.shared.connect()
+    }
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+        WindowGroup { ContentView() }
     }
 }

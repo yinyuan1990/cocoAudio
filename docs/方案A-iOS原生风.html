@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FC call · 方案A · iOS 原生风</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  :root{
+    /* iOS system colors */
+    --blue:#007AFF; --green:#34C759; --red:#FF3B30; --orange:#FF9500;
+    --label:#000000; --label2:#3C3C43; --label3:#8E8E93;
+    --grouped-bg:#F2F2F7; --card:#FFFFFF; --sep:rgba(60,60,67,.18);
+    --fill:rgba(118,118,128,.12); --fill2:rgba(118,118,128,.08);
+  }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","PingFang SC","Microsoft YaHei",sans-serif;
+    background:#c9ccd4;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:22px 12px;color:var(--label);
+    background:linear-gradient(180deg,#d5d8df,#c3c6cf);
+  }
+  .cap{color:#5b5f6b;font-size:12px;letter-spacing:.5px;margin-bottom:14px;}
+  .phone{width:380px;max-width:100%;height:812px;background:var(--grouped-bg);border-radius:52px;position:relative;overflow:hidden;
+    box-shadow:0 30px 70px rgba(30,34,50,.35),0 0 0 12px #1a1a1c,0 0 0 13px #2c2c2e;}
+  .dyn{position:absolute;top:14px;left:50%;transform:translateX(-50%);width:120px;height:34px;background:#000;border-radius:20px;z-index:60;}
+  .statusbar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:16px 30px 0;font-size:15px;font-weight:600;z-index:20;}
+  .screen{position:absolute;inset:0;display:flex;flex-direction:column;}
+  svg{display:block;}
+
+  /* 顶栏 */
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:60px 20px 4px;}
+  .nav .navbtn{width:40px;height:40px;border-radius:50%;background:var(--fill);display:flex;align-items:center;justify-content:center;color:var(--blue);cursor:pointer;transition:.15s;}
+  .nav .navbtn:active{background:var(--fill2);transform:scale(.94);}
+  .nav .navbtn svg{width:20px;height:20px;}
+  .presence{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--green);}
+  .presence.off{color:var(--red);}
+  .presence .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+
+  /* 号码显示 */
+  .head{padding:18px 24px 6px;text-align:center;}
+  .head .name{font-size:14px;color:var(--label3);font-weight:500;letter-spacing:1px;margin-bottom:8px;}
+  .head .num{font-size:40px;font-weight:400;letter-spacing:2px;min-height:48px;font-variant-numeric:tabular-nums;}
+  .head .num.empty{color:var(--label3);opacity:.5;font-size:22px;font-weight:400;}
+
+  /* 拨号盘 */
+  .pad{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px 26px;padding:14px 42px;place-content:center;justify-items:center;}
+  .k{width:74px;height:74px;border-radius:50%;background:var(--fill);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:.1s;user-select:none;}
+  .k .d{font-size:33px;font-weight:400;line-height:1;}
+  .k .l{font-size:10px;font-weight:600;letter-spacing:2px;color:var(--label2);margin-top:3px;height:11px;}
+  .k:active{background:rgba(118,118,128,.28);}
+
+  /* 底部操作 */
+  .actions{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;padding:6px 42px 40px;justify-items:center;}
+  .call{width:74px;height:74px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 20px rgba(52,199,89,.4);transition:.12s;grid-column:2;}
+  .call:active{transform:scale(.92);}
+  .call svg{width:34px;height:34px;color:#fff;}
+  .back{grid-column:3;width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--label2);cursor:pointer;}
+  .back:active{background:var(--fill);}
+  .back svg{width:26px;height:26px;}
+
+  /* 通话中 */
+  .incall{position:absolute;inset:0;z-index:40;background:linear-gradient(185deg,#3a3a3c,#1c1c1e 55%,#000);display:none;flex-direction:column;align-items:center;padding:96px 24px 46px;color:#fff;}
+  .incall.show{display:flex;}
+  .incall .cname{font-size:34px;font-weight:500;letter-spacing:2px;}
+  .incall .cstate{margin-top:10px;font-size:16px;color:rgba(235,235,245,.6);font-variant-numeric:tabular-nums;}
+  .incall .glow{width:112px;height:112px;border-radius:50%;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;margin-top:34px;}
+  .incall .glow svg{width:46px;height:46px;color:#fff;opacity:.95;}
+  .cgrid{margin-top:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:26px 34px;justify-items:center;width:100%;max-width:280px;}
+  .cbtn{display:flex;flex-direction:column;align-items:center;gap:9px;font-size:12px;color:rgba(235,235,245,.85);cursor:pointer;}
+  .cbtn .cc{width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center;transition:.15s;}
+  .cbtn .cc svg{width:28px;height:28px;color:#fff;}
+  .cbtn.on .cc{background:#fff;} .cbtn.on .cc svg{color:#000;}
+  .cbtn:active .cc{transform:scale(.92);}
+  .endrow{margin-top:30px;display:flex;justify-content:center;width:100%;}
+  .endbtn{width:74px;height:74px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 22px rgba(255,59,48,.45);}
+  .endbtn:active{transform:scale(.92);} .endbtn svg{width:34px;height:34px;color:#fff;}
+
+  /* 底部弹窗 */
+  .mask{position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:50;display:none;align-items:flex-end;}
+  .mask.show{display:flex;animation:fade .25s;}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .sheet{width:100%;background:var(--grouped-bg);border-radius:14px 14px 0 0;padding:10px 0 34px;animation:up .32s cubic-bezier(.2,.8,.2,1);max-height:82%;overflow:auto;}
+  @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .grab{width:36px;height:5px;border-radius:3px;background:#c7c7cc;margin:6px auto 10px;}
+  .sheet-title{display:flex;align-items:center;justify-content:space-between;padding:4px 20px 12px;}
+  .sheet-title h3{font-size:20px;font-weight:700;}
+  .sheet-title .done{color:var(--blue);font-weight:600;font-size:16px;cursor:pointer;}
+  .sec{font-size:13px;color:var(--label3);font-weight:500;padding:16px 20px 7px;text-transform:none;}
+  .group{background:var(--card);margin:0 16px;border-radius:12px;overflow:hidden;}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;position:relative;min-height:48px;}
+  .row+.row::before{content:"";position:absolute;top:0;left:16px;right:0;height:1px;background:var(--sep);}
+  .row .rt{font-size:16px;}
+  .row .rv{font-size:16px;color:var(--label3);font-variant-numeric:tabular-nums;}
+
+  /* iOS 滑块 音量 */
+  .slider-row{padding:14px 16px;}
+  .slider-row .sl-top{display:flex;justify-content:space-between;font-size:16px;margin-bottom:12px;}
+  .slider-row .sl-top b{color:var(--blue);font-weight:600;font-variant-numeric:tabular-nums;}
+  .sl-wrap{display:flex;align-items:center;gap:12px;}
+  .sl-wrap svg{width:18px;height:18px;color:var(--label3);flex:none;}
+  input[type=range].ios{-webkit-appearance:none;appearance:none;flex:1;height:4px;border-radius:2px;outline:none;cursor:pointer;
+    background:linear-gradient(90deg,var(--blue) 80%,#d1d1d6 80%);}
+  input[type=range].ios::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25),0 3px 8px rgba(0,0,0,.12);cursor:pointer;}
+  input[type=range].ios::-moz-range-thumb{width:28px;height:28px;border:none;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;}
+
+  /* iOS 分段控件 */
+  .seg{display:flex;background:var(--fill);border-radius:9px;padding:2px;margin:2px 0;}
+  .seg button{flex:1;border:none;background:transparent;padding:8px 0;border-radius:7px;font-size:14px;font-weight:500;color:var(--label);cursor:pointer;transition:.15s;}
+  .seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);font-weight:600;}
+
+  .btn-row{padding:8px 16px 0;}
+  .lbtn{width:100%;background:var(--card);border:none;border-radius:12px;padding:14px;font-size:16px;font-weight:500;cursor:pointer;margin-bottom:10px;}
+  .lbtn.destructive{color:var(--red);}
+  .lbtn.plain{color:var(--blue);}
+  .lbtn:active{background:#eaeaea;}
+
+  .wifi .row{cursor:pointer;} .wifi .row:active{background:#eaeaef;}
+  .wifi .nm{display:flex;align-items:center;gap:11px;font-size:16px;}
+  .wifi .nm svg{width:19px;height:19px;color:var(--label2);}
+  .wifi .rssi{color:var(--label3);font-size:14px;}
+  .foot{font-size:12px;color:var(--label3);text-align:center;padding:14px 30px 0;line-height:1.5;}
+</style>
+</head>
+<body>
+  <div class="cap">FC call · 方案 A · Apple 风（iOS HIG）</div>
+  <div class="phone">
+    <div class="dyn"></div>
+    <div class="statusbar"><span>9:41</span><span>5G&nbsp;&nbsp;100%</span></div>
+    <div class="screen">
+      <div class="nav">
+        <div class="navbtn" onclick="openSheet('settings')" title="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </div>
+        <div class="presence" id="presence"><span class="dot"></span><span>设备在线</span></div>
+        <div class="navbtn" onclick="openSheet('wifi')" title="配网">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        </div>
+      </div>
+
+      <div class="head">
+        <div class="name">FC call · 设备呼叫</div>
+        <div class="num empty" id="num">输入设备 ID</div>
+      </div>
+
+      <div class="pad">
+        <div class="k" onclick="press('1')"><span class="d">1</span><span class="l"></span></div>
+        <div class="k" onclick="press('2')"><span class="d">2</span><span class="l">ABC</span></div>
+        <div class="k" onclick="press('3')"><span class="d">3</span><span class="l">DEF</span></div>
+        <div class="k" onclick="press('4')"><span class="d">4</span><span class="l">GHI</span></div>
+        <div class="k" onclick="press('5')"><span class="d">5</span><span class="l">JKL</span></div>
+        <div class="k" onclick="press('6')"><span class="d">6</span><span class="l">MNO</span></div>
+        <div class="k" onclick="press('7')"><span class="d">7</span><span class="l">PQRS</span></div>
+        <div class="k" onclick="press('8')"><span class="d">8</span><span class="l">TUV</span></div>
+        <div class="k" onclick="press('9')"><span class="d">9</span><span class="l">WXYZ</span></div>
+        <div class="k" onclick="press('*')"><span class="d">＊</span><span class="l"></span></div>
+        <div class="k" onclick="press('0')"><span class="d">0</span><span class="l">+</span></div>
+        <div class="k" onclick="press('#')"><span class="d">#</span><span class="l"></span></div>
+      </div>
+
+      <div class="actions">
+        <div class="call" onclick="startCall()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.62 10.79a15.15 15.15 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24 11.36 11.36 0 0 0 3.57.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.36 11.36 0 0 0 .57 3.57 1 1 0 0 1-.25 1.02l-2.2 2.2z"/></svg>
+        </div>
+        <div class="back" onclick="del()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><line x1="18" y1="9" x2="12" y2="15"/><line x1="12" y1="9" x2="18" y2="15"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通话中 -->
+    <div class="incall" id="incall">
+      <div class="cname" id="cname">123456</div>
+      <div class="cstate" id="cstate">正在呼叫…</div>
+      <div class="glow">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </div>
+      <div class="cgrid">
+        <div class="cbtn" id="mute" onclick="tog('mute')"><div class="cc">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        </div>静音</div>
+        <div class="cbtn" onclick="alert('演示：键盘')"><div class="cc">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="9" x2="7" y2="9"/><line x1="12" y1="9" x2="12" y2="9"/><line x1="17" y1="9" x2="17" y2="9"/><line x1="7" y1="14" x2="17" y2="14"/></svg>
+        </div>键盘</div>
+        <div class="cbtn on" id="spk" onclick="tog('spk')"><div class="cc">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </div>免提</div>
+      </div>
+      <div class="endrow">
+        <div class="endbtn" onclick="endCall()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85a.99.99 0 0 1-1.41-.03L.29 13.08a.99.99 0 0 1 .03-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.68 4.67c.39.38.4 1.01.03 1.41l-2.48 2.48c-.38.39-1 .4-1.41.03a11.72 11.72 0 0 0-2.66-1.85.998.998 0 0 1-.56-.9v-3.1A15.68 15.68 0 0 0 12 9z"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="mask" id="sheetSettings">
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sheet-title"><h3>设备设置</h3><span class="done" onclick="closeSheet()">完成</span></div>
+
+        <div class="sec">咪头音量</div>
+        <div class="group">
+          <div class="slider-row">
+            <div class="sl-top"><span>输入增益</span><b id="volVal">80%</b></div>
+            <div class="sl-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+              <input type="range" min="0" max="100" step="5" value="80" class="ios" id="vol" oninput="setVol(this)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">联网方式</div>
+        <div class="group"><div class="row" style="display:block;">
+          <div class="seg"><button class="on">Wi-Fi</button><button>4G</button></div>
+        </div></div>
+
+        <div class="sec">设备操作</div>
+        <div class="btn-row">
+          <button class="lbtn plain">按住配对</button>
+          <button class="lbtn destructive">复位（恢复出厂）</button>
+        </div>
+        <div class="foot">复位将恢复默认音量与默认 Wi-Fi 账号密码，设备会自动重启。</div>
+      </div>
+    </div>
+
+    <!-- WiFi -->
+    <div class="mask wifi" id="sheetWifi">
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sheet-title"><h3>选择 Wi-Fi</h3><span class="done" onclick="closeSheet()">完成</span></div>
+        <div class="sec">设备扫描到的网络</div>
+        <div class="group" id="wifiList">
+          <div class="row" onclick="alert('弹出输入 Wi-Fi 密码')"><span class="nm">${wifiIc}Home-WiFi-5G</span><span class="rssi">强</span></div>
+          <div class="row" onclick="alert('弹出输入 Wi-Fi 密码')"><span class="nm">${wifiIc}Office_2.4G</span><span class="rssi">强</span></div>
+          <div class="row" onclick="alert('弹出输入 Wi-Fi 密码')"><span class="nm">${wifiIc}TP-LINK_8823</span><span class="rssi">中</span></div>
+          <div class="row" onclick="alert('弹出输入 Wi-Fi 密码')"><span class="nm">${wifiIc}CMCC-Guest</span><span class="rssi">弱</span></div>
+        </div>
+        <div class="foot">点选后输入密码并下发给设备测试连接。</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const wifiIc='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+  document.getElementById('wifiList').innerHTML=document.getElementById('wifiList').innerHTML.replaceAll('${wifiIc}',wifiIc);
+
+  let val="";
+  const numEl=document.getElementById('num');
+  function render(){ if(val){numEl.textContent=val;numEl.classList.remove('empty');} else {numEl.textContent='输入设备 ID';numEl.classList.add('empty');} }
+  function press(d){ if(val.length<10){val+=d;render();} }
+  function del(){ val=val.slice(0,-1); render(); }
+  function setVol(el){ const p=el.value; document.getElementById('volVal').textContent=p+'%'; el.style.background=`linear-gradient(90deg,var(--blue) ${p}%, #d1d1d6 ${p}%)`; }
+  function startCall(){
+    if(val.length<6){ alert('请输入正确的 6 位设备 ID'); return; }
+    document.getElementById('cname').textContent=val;
+    document.getElementById('incall').classList.add('show');
+    setTimeout(()=>{document.getElementById('cstate').textContent='00:03';},1800);
+  }
+  function endCall(){ document.getElementById('incall').classList.remove('show'); document.getElementById('cstate').textContent='正在呼叫…'; }
+  function tog(id){ document.getElementById(id).classList.toggle('on'); }
+  function openSheet(t){ document.getElementById(t==='settings'?'sheetSettings':'sheetWifi').classList.add('show'); }
+  function closeSheet(){ document.querySelectorAll('.mask').forEach(s=>s.classList.remove('show')); }
+  render();
+</script>
+</body>
+</html>

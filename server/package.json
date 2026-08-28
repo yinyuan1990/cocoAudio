@@ -1,0 +1,12 @@
+{
+  "name": "xinsheng-server",
+  "version": "1.0.0",
+  "description": "心声 语音对讲 信令/语音转发服务器",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
