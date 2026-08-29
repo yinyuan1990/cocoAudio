@@ -29,7 +29,7 @@ class AudioManager {
         const val SAMPLE_RATE = 8000
         const val FRAME_BYTES = 960
         private const val TAG = "AudioManager"
-        private const val PLAYBACK_GAIN = 2.5f
+        private const val PLAYBACK_GAIN = 1.0f
         private const val PREBUFFER_FRAMES = 2
         private const val MAX_QUEUE = 10
     }
