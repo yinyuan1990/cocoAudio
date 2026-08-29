@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.coco.audio.net.WsClient
 import com.coco.audio.service.CallService
+import org.json.JSONObject
 
 // 方案A（iOS 风）配色
 private val Bg = Color(0xFFF2F2F7)
@@ -72,8 +74,16 @@ private fun App() {
     val ctx = LocalContext.current
     val call by WsClient.call.collectAsState()
     val presence by WsClient.deviceOnline.collectAsState()
+    val wifiList by WsClient.wifiList.collectAsState()
     var deviceId by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
+    var pwdSsid by remember { mutableStateOf<String?>(null) }
+
+    fun needId(): Boolean {
+        if (deviceId.length >= 6) return true
+        Toast.makeText(ctx, "请先输入 6 位设备 ID", Toast.LENGTH_SHORT).show()
+        return false
+    }
 
     // 输入满 6 位时查询在线
     LaunchedEffect(deviceId) { if (deviceId.length >= 6) { WsClient.ensureConnected(); WsClient.checkDeviceStatus(deviceId) } }
@@ -90,14 +100,55 @@ private fun App() {
                 online = online,
                 onDigit = { if (deviceId.length < 10) deviceId += it },
                 onDelete = { if (deviceId.isNotEmpty()) deviceId = deviceId.dropLast(1) },
-                onCall = { if (deviceId.length >= 6) startCall(ctx, deviceId) },
-                onSettings = { if (deviceId.length >= 6) showSettings = true },
-                onWifi = { if (deviceId.length >= 6) WsClient.requestWifiScan(deviceId) }
+                onCall = { if (needId()) startCall(ctx, deviceId) },
+                onSettings = { if (needId()) showSettings = true },
+                onWifi = { if (needId()) { WsClient.requestWifiScan(deviceId); Toast.makeText(ctx, "正在请求设备扫描 WiFi…", Toast.LENGTH_SHORT).show() } }
             )
         }
     }
 
     if (showSettings) SettingsSheet(deviceId, onDismiss = { showSettings = false })
+
+    // WiFi 扫描结果
+    if (wifiList.isNotEmpty() && pwdSsid == null) {
+        AlertDialog(
+            onDismissRequest = { WsClient.clearWifiList() },
+            title = { Text("选择要配网的 WiFi") },
+            text = {
+                Column {
+                    wifiList.forEach { item ->
+                        val ssid = item.optString("ssid")
+                        Row(
+                            Modifier.fillMaxWidth().clickable { pwdSsid = ssid }.padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(ssid, color = Ink)
+                            Text("${item.optInt("rssi")} dBm", color = Sub, fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { WsClient.clearWifiList() }) { Text("取消") } }
+        )
+    }
+
+    // WiFi 密码输入
+    pwdSsid?.let { ssid ->
+        var pwd by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { pwdSsid = null },
+            title = { Text("连接至 $ssid") },
+            text = { OutlinedTextField(value = pwd, onValueChange = { pwd = it }, label = { Text("WiFi 密码") }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    WsClient.sendWifiConfig(deviceId, ssid, pwd)
+                    Toast.makeText(ctx, "配网指令已发送", Toast.LENGTH_LONG).show()
+                    pwdSsid = null; WsClient.clearWifiList()
+                }) { Text("发送并测试") }
+            },
+            dismissButton = { TextButton(onClick = { pwdSsid = null }) { Text("取消") } }
+        )
+    }
 }
 
 @Composable

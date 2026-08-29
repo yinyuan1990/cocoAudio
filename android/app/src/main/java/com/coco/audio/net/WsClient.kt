@@ -33,6 +33,8 @@ object WsClient {
     val call: StateFlow<Call> = _call
     private val _deviceOnline = MutableStateFlow<Pair<String, Boolean>?>(null)
     val deviceOnline: StateFlow<Pair<String, Boolean>?> = _deviceOnline
+    private val _wifiList = MutableStateFlow<List<JSONObject>>(emptyList())
+    val wifiList: StateFlow<List<JSONObject>> = _wifiList
 
     var onAudioReceived: ((ByteArray) -> Unit)? = null
 
@@ -74,6 +76,8 @@ object WsClient {
     fun sendSwitchNetwork(id: String, mode: String) { sendJson { put("type", "switch_network"); put("device_id", id); put("mode", mode) } }
     fun sendPairingGpio(id: String, level: Int) { sendJson { put("type", "pairing_gpio"); put("device_id", id); put("level", level) } }
 
+    fun clearWifiList() { _wifiList.value = emptyList() }
+
     fun sendAudio(data: ByteArray) { ws?.takeIf { isOnline() }?.send(data.toByteString(0, data.size)) }
 
     fun disconnect() { userClosed.set(true); ws?.close(1000, "quit"); ws = null; _conn.value = Conn.Disconnected }
@@ -93,6 +97,12 @@ object WsClient {
                 "call_connected" -> _call.value = Call.InCall
                 "call_ended" -> _call.value = Call.Ended("已结束")
                 "call_result" -> if (!json.optBoolean("success", true)) { _call.value = Call.Ended(json.optString("error", "呼叫失败")) }
+                "wifi_list" -> {
+                    val arr = json.optJSONArray("data")
+                    val list = ArrayList<JSONObject>()
+                    if (arr != null) for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    _wifiList.value = list
+                }
             }
         }
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) { onAudioReceived?.invoke(bytes.toByteArray()) }
