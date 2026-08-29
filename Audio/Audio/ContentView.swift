@@ -14,6 +14,7 @@ struct ContentView: View {
     @StateObject private var controller = CallController()
     @State private var deviceId = ""
     @State private var showSettings = false
+    @State private var showWifi = false
 
     private var inCall: Bool { ws.callState == .calling || ws.callState == .inCall }
     private var online: Bool { if let p = ws.deviceOnline { return p.id == deviceId && p.online }; return false }
@@ -29,7 +30,7 @@ struct ContentView: View {
                 DialerView(deviceId: $deviceId, online: online,
                            onCall: { if deviceId.count >= 6 { ws.ensureConnected(); ws.callDevice(deviceId) } },
                            onSettings: { if deviceId.count >= 6 { showSettings = true } },
-                           onWifi: { if deviceId.count >= 6 { ws.requestWifiScan(deviceId) } })
+                           onWifi: { if deviceId.count >= 6 { ws.requestWifiScan(deviceId); showWifi = true } })
             }
         }
         .onChange(of: deviceId) { _ in if deviceId.count >= 6 { ws.ensureConnected(); ws.checkDeviceStatus(deviceId) } }
@@ -39,6 +40,52 @@ struct ContentView: View {
             else if state == .idle { controller.stopAudio() }
         }
         .sheet(isPresented: $showSettings) { SettingsView(deviceId: deviceId) }
+        .sheet(isPresented: $showWifi) { WifiView(deviceId: deviceId) }
+    }
+}
+
+private struct WifiView: View {
+    let deviceId: String
+    @ObservedObject var ws = WSClient.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: String? = nil
+    @State private var pwd = ""
+
+    var body: some View {
+        NavigationView {
+            List {
+                if ws.wifiList.isEmpty {
+                    HStack { ProgressView(); Text("正在扫描设备周边 WiFi…").foregroundColor(.secondary) }
+                }
+                ForEach(ws.wifiList.indices, id: \.self) { i in
+                    let item = ws.wifiList[i]
+                    let ssid = item["ssid"] as? String ?? ""
+                    Button {
+                        selected = ssid
+                    } label: {
+                        HStack {
+                            Image(systemName: "wifi").foregroundColor(.secondary)
+                            Text(ssid).foregroundColor(.primary)
+                            Spacer()
+                            Text("\((item["rssi"] as? NSNumber)?.intValue ?? 0) dBm").font(.caption).foregroundColor(.secondary)
+                            if selected == ssid { Image(systemName: "checkmark").foregroundColor(.accentColor) }
+                        }
+                    }
+                }
+                if let s = selected {
+                    Section("连接至 \(s)") {
+                        SecureField("WiFi 密码", text: $pwd)
+                        Button("发送并测试") {
+                            ws.sendWifiConfig(deviceId, s, pwd)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择 WiFi")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }
+        .onDisappear { ws.clearWifi() }
     }
 }
 

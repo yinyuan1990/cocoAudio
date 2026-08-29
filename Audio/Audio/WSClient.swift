@@ -11,6 +11,7 @@ final class WSClient: NSObject, ObservableObject {
     @Published var connected = false
     @Published var callState: CallState = .idle
     @Published var deviceOnline: (id: String, online: Bool)? = nil
+    @Published var wifiList: [[String: Any]] = []
 
     var onAudioReceived: ((Data) -> Void)?
 
@@ -62,6 +63,8 @@ final class WSClient: NSObject, ObservableObject {
             case "call_ended": self.callState = .ended("已结束")
             case "call_result":
                 if (obj["success"] as? Bool ?? true) == false { self.callState = .ended(obj["error"] as? String ?? "呼叫失败") }
+            case "wifi_list":
+                self.wifiList = (obj["data"] as? [[String: Any]]) ?? []
             default: break
             }
         }
@@ -76,7 +79,8 @@ final class WSClient: NSObject, ObservableObject {
     func checkDeviceStatus(_ id: String) { guard !id.isEmpty else { return }; sendJson(["type": "check_device_status", "device_id": id]) }
     func callDevice(_ id: String) { activeDeviceId = id; callState = .calling; sendJson(["type": "call_request", "device_id": id]) }
     func endCall() { activeDeviceId = nil; callState = .idle; sendJson(["type": "call_end"]) }
-    func requestWifiScan(_ id: String) { sendJson(["type": "wifi_scan", "device_id": id]) }
+    func requestWifiScan(_ id: String) { wifiList = []; sendJson(["type": "wifi_scan", "device_id": id]) }
+    func clearWifi() { wifiList = [] }
     func sendWifiConfig(_ id: String, _ ssid: String, _ pass: String) { sendJson(["type": "wifi_config", "device_id": id, "ssid": ssid, "password": pass]) }
     func sendVolume(_ id: String, _ v: Int) { sendJson(["type": "set_volume", "device_id": id, "volume": v]) }
     func sendFactoryReset(_ id: String) { sendJson(["type": "factory_reset", "device_id": id]) }
