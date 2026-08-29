@@ -5,6 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +38,9 @@ class AudioManager {
 
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
+    private var aec: AcousticEchoCanceler? = null
+    private var ns: NoiseSuppressor? = null
+    private var agc: AutomaticGainControl? = null
     private val isRecording = AtomicBoolean(false)
     private val isPlaying = AtomicBoolean(false)
     private val isMuted = AtomicBoolean(false)
@@ -58,10 +64,30 @@ class AudioManager {
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuf * 2
             )
             audioRecord = rec
-            rec.state == AudioRecord.STATE_INITIALIZED
+            val ok = rec.state == AudioRecord.STATE_INITIALIZED
+            if (ok) enableAudioEffects(rec.audioSessionId)
+            ok
         } catch (e: Exception) {
             Log.e(TAG, "init error: ${e.message}"); false
         }
+    }
+
+    /** 启用系统级回声消除(AEC)+噪声抑制(NS)+自动增益(AGC)，抑制外放啸叫/回声 */
+    private fun enableAudioEffects(sessionId: Int) {
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                aec = AcousticEchoCanceler.create(sessionId)?.apply { enabled = true }
+                Log.i(TAG, "AEC 回声消除已启用=${aec?.enabled}")
+            } else Log.w(TAG, "本机不支持硬件 AEC")
+            if (NoiseSuppressor.isAvailable()) {
+                ns = NoiseSuppressor.create(sessionId)?.apply { enabled = true }
+                Log.i(TAG, "NS 噪声抑制已启用=${ns?.enabled}")
+            }
+            if (AutomaticGainControl.isAvailable()) {
+                agc = AutomaticGainControl.create(sessionId)?.apply { enabled = true }
+                Log.i(TAG, "AGC 自动增益已启用=${agc?.enabled}")
+            }
+        } catch (e: Exception) { Log.e(TAG, "启用音效失败: ${e.message}") }
     }
 
     fun startRecording() {
@@ -234,6 +260,10 @@ class AudioManager {
     fun release() {
         Log.i(TAG, "释放音频资源")
         stopRecording(); stopPlayback()
+        try { aec?.release() } catch (_: Exception) {}
+        try { ns?.release() } catch (_: Exception) {}
+        try { agc?.release() } catch (_: Exception) {}
+        aec = null; ns = null; agc = null
         try { audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null
     }
