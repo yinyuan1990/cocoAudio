@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// 心声 WebSocket 客户端。收发 JSON 信令与二进制语音。
 final class WSClient: NSObject, ObservableObject {

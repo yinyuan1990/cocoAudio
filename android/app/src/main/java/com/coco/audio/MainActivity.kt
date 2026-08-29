@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -287,9 +288,16 @@ private fun SettingsSheet(deviceId: String, onDismiss: () -> Unit) {
 
             Text("咪头音量  ${volume.toInt()}%", fontSize = 14.sp, color = Sub)
             Slider(
-                value = volume, onValueChange = { volume = it }, valueRange = 0f..100f, steps = 19,
+                value = volume, onValueChange = { volume = it }, valueRange = 0f..100f,
                 onValueChangeFinished = { WsClient.sendVolume(deviceId, volume.toInt()) },
-                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Blue)
+                colors = SliderDefaults.colors(activeTrackColor = Blue, inactiveTrackColor = Color(0xFFD1D1D6)),
+                thumb = {
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape)
+                            .background(Color.White)
+                            .border(3.dp, Blue, CircleShape)
+                    )
+                }
             )
             Spacer(Modifier.height(14.dp))
 
