@@ -85,18 +85,20 @@ private struct DialerView: View {
 
             Spacer()
 
-            HStack {
-                Spacer()
+            ZStack {
                 Button(action: onCall) {
                     ZStack { Circle().fill(green).frame(width: 74, height: 74)
                         Image(systemName: "phone.fill").font(.system(size: 30)).foregroundColor(.white) }
                 }
-                ZStack {
+                HStack {
+                    Spacer()
                     Button { if !deviceId.isEmpty { deviceId.removeLast() } } label: {
                         Image(systemName: "delete.left").font(.system(size: 24)).foregroundColor(ink)
                     }
-                }.frame(maxWidth: .infinity)
+                    .padding(.trailing, 44)
+                }
             }
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 40)
         }
     }
