@@ -71,18 +71,27 @@ class AudioManager {
             rec.startRecording()
             isRecording.set(true)
             AdpcmCodec.resetStreamState()
+            Log.i(TAG, "开始录音 (8kHz)")
             val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             recordScope = scope
             scope.launch {
                 val buffer = ByteArray(FRAME_BYTES)
+                var sent = 0
                 while (isRecording.get()) {
                     val read = rec.read(buffer, 0, buffer.size)
                     if (read >= FRAME_BYTES) {
-                        AdpcmCodec.encodeFrame(buffer)?.let { onAudioDataCaptured?.invoke(it) }
+                        AdpcmCodec.encodeFrame(buffer)?.let {
+                            onAudioDataCaptured?.invoke(it)
+                            sent++
+                            if (sent == 1 || sent % 50 == 0) Log.d(TAG, "已采集编码 $sent 帧")
+                        }
+                    } else if (read < 0) {
+                        Log.w(TAG, "AudioRecord.read 返回 $read")
                     }
                 }
+                Log.i(TAG, "录音循环结束, 共 $sent 帧")
             }
-        } catch (e: Exception) { isRecording.set(false) }
+        } catch (e: Exception) { Log.e(TAG, "startRecording 异常: ${e.message}"); isRecording.set(false) }
     }
 
     fun startPlayback() {
@@ -114,7 +123,8 @@ class AudioManager {
             val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             playbackScope = scope
             scope.launch { playbackLoop() }
-        } catch (e: Exception) { Log.e(TAG, "startPlayback: ${e.message}") }
+            Log.i(TAG, "启动播放, trackBuffer=${minBuf * 6}B")
+        } catch (e: Exception) { Log.e(TAG, "startPlayback 异常: ${e.message}") }
     }
 
     private suspend fun playbackLoop() {
@@ -130,6 +140,8 @@ class AudioManager {
             if (w > 0) kotlinx.coroutines.delay(w)
         }
     }
+
+    private var rxPktCount = 0
 
     /** 收到网络二进制帧，按魔数对齐、解码、入播放队列 */
     fun playAudioData(data: ByteArray) {
@@ -149,6 +161,10 @@ class AudioManager {
             }
         }
         for (pcm in frames) if (!playbackQueue.offer(pcm)) { playbackQueue.poll(); playbackQueue.offer(pcm) }
+        if (frames.isNotEmpty()) {
+            rxPktCount += frames.size
+            if (rxPktCount <= frames.size || rxPktCount % 50 == 0) Log.d(TAG, "已解码播放 $rxPktCount 帧, 队列=${playbackQueue.size}")
+        }
     }
 
     private fun appendRx(data: ByteArray) {
@@ -199,22 +215,24 @@ class AudioManager {
     }
 
     fun stopRecording() {
-        isRecording.set(false)
+        if (isRecording.getAndSet(false)) Log.i(TAG, "停止录音")
         recordScope?.cancel(); recordScope = null
         try { audioRecord?.stop() } catch (_: Exception) {}
     }
 
     fun stopPlayback() {
-        isPlaying.set(false)
+        if (isPlaying.getAndSet(false)) Log.i(TAG, "停止播放")
         playoutReady.set(false)
         playbackScope?.cancel(); playbackScope = null
         playbackQueue.clear()
+        rxPktCount = 0
         synchronized(rxLock) { rxLen = 0 }
         try { audioTrack?.stop(); audioTrack?.release() } catch (_: Exception) {}
         audioTrack = null
     }
 
     fun release() {
+        Log.i(TAG, "释放音频资源")
         stopRecording(); stopPlayback()
         try { audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null

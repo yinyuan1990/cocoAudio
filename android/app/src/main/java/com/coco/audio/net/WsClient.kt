@@ -69,6 +69,8 @@ object WsClient {
         }
     }
     fun endCall() { sendJson { put("type", "call_end") }; activeDeviceId = null; _call.value = Call.Idle }
+    /** 开始新一通前清掉上一通的残留状态（避免 StateFlow 重放 Ended 导致新服务被立刻结束） */
+    fun resetCall() { _call.value = Call.Idle }
     fun requestWifiScan(id: String) { sendJson { put("type", "wifi_scan"); put("device_id", id) } }
     fun sendWifiConfig(id: String, ssid: String, pass: String) { sendJson { put("type", "wifi_config"); put("device_id", id); put("ssid", ssid); put("password", pass) } }
     fun sendVolume(id: String, v: Int) { sendJson { put("type", "set_volume"); put("device_id", id); put("volume", v) } }
@@ -86,9 +88,10 @@ object WsClient {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             _conn.value = Conn.Connected
             webSocket.send(JSONObject().put("type", "connect_app").toString())
-            Log.i(TAG, "connected")
+            Log.i(TAG, "WebSocket 已连接 $SERVER_URL")
         }
         override fun onMessage(webSocket: WebSocket, text: String) {
+            Log.d(TAG, "收到信令: $text")
             val json = try { JSONObject(text) } catch (e: Exception) { return }
             when (json.optString("type")) {
                 "device_status" -> _deviceOnline.value = json.optString("device_id") to json.optBoolean("online")
@@ -106,8 +109,8 @@ object WsClient {
             }
         }
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) { onAudioReceived?.invoke(bytes.toByteArray()) }
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { handleClose() }
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { Log.w(TAG, "fail: ${t.message}"); handleClose() }
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { Log.w(TAG, "连接关闭 code=$code $reason"); handleClose() }
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { Log.w(TAG, "连接失败: ${t.message}"); handleClose() }
     }
 
     private fun handleClose() {
