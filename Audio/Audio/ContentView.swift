@@ -25,6 +25,7 @@ struct ContentView: View {
             if inCall {
                 InCallView(deviceId: deviceId, connected: ws.callState == .inCall,
                            onMute: { controller.setMuted($0) },
+                           onSpeaker: { controller.setSpeaker($0) },
                            onEnd: { ws.endCall() })
             } else {
                 DialerView(deviceId: $deviceId, online: online,
@@ -213,9 +214,10 @@ private struct InCallView: View {
     let deviceId: String
     let connected: Bool
     let onMute: (Bool) -> Void
+    let onSpeaker: (Bool) -> Void
     let onEnd: () -> Void
-    @State private var mic = false
-    @State private var spk = true
+    @State private var mic = false     // true = 已静音
+    @State private var spk = true      // true = 免提(外放)，iOS 会话已 defaultToSpeaker
     @State private var micVolume: Double = 80
     @State private var speakerVolume: Double = 50
 
@@ -237,8 +239,8 @@ private struct InCallView: View {
                 Spacer().frame(height: 26)
 
                 HStack(spacing: 34) {
-                    ctrl("mic.slash.fill", "静音", mic) { mic.toggle(); onMute(mic) }
-                    ctrl("speaker.wave.2.fill", "免提", spk) { spk.toggle() }
+                    ctrl("mic.slash.fill", mic ? "已静音" : "静音", mic) { mic.toggle(); onMute(mic) }
+                    ctrl("speaker.wave.2.fill", spk ? "免提" : "听筒", spk) { spk.toggle(); onSpeaker(spk) }
                 }
                 Spacer().frame(height: 30)
                 Button(action: onEnd) {

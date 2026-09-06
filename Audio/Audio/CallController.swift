@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AVFoundation
 
 /// 把 WebSocket 与音频引擎接起来：接通时启动采集/播放。
 final class CallController: ObservableObject {
@@ -14,4 +15,8 @@ final class CallController: ObservableObject {
     func startAudio() { engine.start() }
     func stopAudio() { engine.stop() }
     func setMuted(_ m: Bool) { engine.setMuted(m) }
+    /// 免提：true 走外放扬声器，false 走听筒
+    func setSpeaker(_ on: Bool) {
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none)
+    }
 }

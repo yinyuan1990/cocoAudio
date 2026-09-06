@@ -35,6 +35,8 @@ class AudioManager {
     }
 
     var onAudioDataCaptured: ((ByteArray) -> Unit)? = null
+    /** 麦克风静音：仍按节拍发帧但内容为静音，保持对端抖动缓冲连续 */
+    @Volatile var micMuted: Boolean = false
 
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
@@ -106,6 +108,7 @@ class AudioManager {
                 while (isRecording.get()) {
                     val read = rec.read(buffer, 0, buffer.size)
                     if (read >= FRAME_BYTES) {
+                        if (micMuted) java.util.Arrays.fill(buffer, 0)
                         AdpcmCodec.encodeFrame(buffer)?.let {
                             onAudioDataCaptured?.invoke(it)
                             sent++

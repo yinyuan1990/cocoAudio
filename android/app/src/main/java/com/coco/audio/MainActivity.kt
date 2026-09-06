@@ -272,8 +272,8 @@ private fun SignalBars(level: Int, color: Color) {
 
 @Composable
 private fun InCallScreen(deviceId: String, connected: Boolean, onEnd: () -> Unit) {
-    var mic by remember { mutableStateOf(false) }
-    var spk by remember { mutableStateOf(true) }
+    var mic by remember { mutableStateOf(false) }                                   // true = 已静音
+    var spk by remember { mutableStateOf(CallService.DEFAULT_SPEAKER_ON) }         // true = 免提(外放)
     var micVolume by remember { mutableStateOf(80f) }
     var speakerVolume by remember { mutableStateOf(50f) }
     Column(
@@ -294,8 +294,8 @@ private fun InCallScreen(deviceId: String, connected: Boolean, onEnd: () -> Unit
         Spacer(Modifier.height(26.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(34.dp)) {
-            CallCtrl("🎤", "静音", mic) { mic = !mic }
-            CallCtrl("🔊", "免提", spk) { spk = !spk }
+            CallCtrl("🎤", if (mic) "已静音" else "静音", mic) { mic = !mic; CallService.instance?.setMicMuted(mic) }
+            CallCtrl("🔊", if (spk) "免提" else "听筒", spk) { spk = !spk; CallService.instance?.setSpeakerOn(spk) }
         }
         Spacer(Modifier.height(30.dp))
         Box(

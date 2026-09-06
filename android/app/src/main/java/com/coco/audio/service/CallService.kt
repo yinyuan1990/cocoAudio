@@ -31,16 +31,36 @@ class CallService : Service() {
         private const val CHANNEL_ID = "voice_call"
         private const val NOTIF_ID = 101
         private const val TAG = "CallService"
+
+        /** 当前运行中的服务实例，供通话页面的静音/免提按钮调用 */
+        @Volatile var instance: CallService? = null
+            private set
+        /** 免提默认开启：对讲机场景手机一般不贴耳朵 */
+        const val DEFAULT_SPEAKER_ON = true
     }
 
     private lateinit var audio: AudioManager
+    private lateinit var sysAudio: android.media.AudioManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var audioStarted = false
 
+    /** 静音：停止把麦克风内容发给对方（仍发静音帧保持节拍） */
+    fun setMicMuted(muted: Boolean) { audio.micMuted = muted; Log.i(TAG, "麦克风静音=$muted") }
+
+    /** 免提：true 走手机外放扬声器，false 走听筒 */
+    fun setSpeakerOn(on: Boolean) {
+        sysAudio.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+        @Suppress("DEPRECATION")
+        sysAudio.isSpeakerphoneOn = on
+        Log.i(TAG, "免提=$on")
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
         Log.i(TAG, "onCreate 服务创建")
+        sysAudio = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
         audio = AudioManager().also { val ok = it.initialize(); Log.i(TAG, "音频初始化 result=$ok") }
         WsClient.onAudioReceived = { audio.playAudioData(it) }
         audio.onAudioDataCaptured = { WsClient.sendAudio(it) }
@@ -55,6 +75,7 @@ class CallService : Service() {
                     is WsClient.Call.InCall -> if (!audioStarted) {
                         audioStarted = true
                         Log.i(TAG, "通话接通，启动录音+播放")
+                        setSpeakerOn(DEFAULT_SPEAKER_ON)
                         audio.startRecording(); audio.startPlayback()
                     }
                     is WsClient.Call.Ended -> if (audioStarted) {
@@ -105,7 +126,13 @@ class CallService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy 服务销毁，释放音频")
+        instance = null
         audio.release()
+        try {
+            @Suppress("DEPRECATION")
+            sysAudio.isSpeakerphoneOn = false
+            sysAudio.mode = android.media.AudioManager.MODE_NORMAL
+        } catch (_: Exception) {}
         WsClient.onAudioReceived = null
         scope.cancel()
         super.onDestroy()
