@@ -35,6 +35,9 @@ object WsClient {
     val deviceOnline: StateFlow<Pair<String, Boolean>?> = _deviceOnline
     private val _wifiList = MutableStateFlow<List<JSONObject>>(emptyList())
     val wifiList: StateFlow<List<JSONObject>> = _wifiList
+    /** 设备当前 WiFi 信号强度 (device_id to rssi dBm)，由设备心跳上报 */
+    private val _deviceSignal = MutableStateFlow<Pair<String, Int>?>(null)
+    val deviceSignal: StateFlow<Pair<String, Int>?> = _deviceSignal
 
     var onAudioReceived: ((ByteArray) -> Unit)? = null
 
@@ -74,6 +77,7 @@ object WsClient {
     fun requestWifiScan(id: String) { sendJson { put("type", "wifi_scan"); put("device_id", id) } }
     fun sendWifiConfig(id: String, ssid: String, pass: String) { sendJson { put("type", "wifi_config"); put("device_id", id); put("ssid", ssid); put("password", pass) } }
     fun sendVolume(id: String, v: Int) { sendJson { put("type", "set_volume"); put("device_id", id); put("volume", v) } }
+    fun sendSpeakerVolume(id: String, v: Int) { sendJson { put("type", "set_speaker_volume"); put("device_id", id); put("volume", v) } }
     fun sendFactoryReset(id: String) { sendJson { put("type", "factory_reset"); put("device_id", id) } }
     fun sendSwitchNetwork(id: String, mode: String) { sendJson { put("type", "switch_network"); put("device_id", id); put("mode", mode) } }
     fun sendPairingGpio(id: String, level: Int) { sendJson { put("type", "pairing_gpio"); put("device_id", id); put("level", level) } }
@@ -97,6 +101,7 @@ object WsClient {
                 "device_status" -> _deviceOnline.value = json.optString("device_id") to json.optBoolean("online")
                 "device_online" -> _deviceOnline.value = json.optString("device_id") to true
                 "device_offline" -> _deviceOnline.value = json.optString("device_id") to false
+                "device_signal" -> _deviceSignal.value = json.optString("device_id") to json.optInt("rssi")
                 "call_connected" -> _call.value = Call.InCall
                 "call_ended" -> _call.value = Call.Ended("已结束")
                 "call_result" -> if (!json.optBoolean("success", true)) { _call.value = Call.Ended(json.optString("error", "呼叫失败")) }

@@ -150,11 +150,29 @@ private struct DialerView: View {
         }
     }
 
+    private var rssi: Int? {
+        if online, let s = ws.deviceSignal, s.id == deviceId { return s.rssi }
+        return nil
+    }
+    private func signalBars(_ r: Int) -> String {
+        switch r {
+        case -55...: return "▂▄▆█"
+        case -65...: return "▂▄▆"
+        case -75...: return "▂▄"
+        default: return "▂"
+        }
+    }
+
     private var presencePill: some View {
         let c = online ? green : red
+        let label: String = {
+            if !online { return "不在线" }
+            if let r = rssi { return "设备在线 · 信号 \(signalBars(r)) (\(r)dBm)" }
+            return "设备在线"
+        }()
         return HStack(spacing: 8) {
             Circle().fill(c).frame(width: 8, height: 8)
-            Text(online ? "设备在线" : "不在线").font(.system(size: 13, weight: .semibold)).foregroundColor(c)
+            Text(label).font(.system(size: 13, weight: .semibold)).foregroundColor(c)
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(c.opacity(0.12)).clipShape(Capsule())
@@ -227,6 +245,7 @@ private struct SettingsView: View {
     let deviceId: String
     @Environment(\.dismiss) private var dismiss
     @State private var volume: Double = 80
+    @State private var speakerVolume: Double = 50
 
     var body: some View {
         NavigationView {
@@ -234,6 +253,11 @@ private struct SettingsView: View {
                 Section("咪头音量  \(Int(volume))%") {
                     Slider(value: $volume, in: 0...100, step: 5) { editing in
                         if !editing { WSClient.shared.sendVolume(deviceId, Int(volume)) }
+                    }.tint(blue)
+                }
+                Section("喇叭音量  \(Int(speakerVolume))%") {
+                    Slider(value: $speakerVolume, in: 0...100, step: 5) { editing in
+                        if !editing { WSClient.shared.sendSpeakerVolume(deviceId, Int(speakerVolume)) }
                     }.tint(blue)
                 }
                 Section("联网方式") {

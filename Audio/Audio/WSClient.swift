@@ -11,6 +11,7 @@ final class WSClient: NSObject, ObservableObject {
     @Published var connected = false
     @Published var callState: CallState = .idle
     @Published var deviceOnline: (id: String, online: Bool)? = nil
+    @Published var deviceSignal: (id: String, rssi: Int)? = nil
     @Published var wifiList: [[String: Any]] = []
 
     var onAudioReceived: ((Data) -> Void)?
@@ -59,6 +60,7 @@ final class WSClient: NSObject, ObservableObject {
             case "device_status": self.deviceOnline = (obj["device_id"] as? String ?? "", obj["online"] as? Bool ?? false)
             case "device_online": self.deviceOnline = (obj["device_id"] as? String ?? "", true)
             case "device_offline": self.deviceOnline = (obj["device_id"] as? String ?? "", false)
+            case "device_signal": self.deviceSignal = (obj["device_id"] as? String ?? "", obj["rssi"] as? Int ?? 0)
             case "call_connected": self.callState = .inCall
             case "call_ended": self.callState = .ended("已结束")
             case "call_result":
@@ -83,6 +85,7 @@ final class WSClient: NSObject, ObservableObject {
     func clearWifi() { wifiList = [] }
     func sendWifiConfig(_ id: String, _ ssid: String, _ pass: String) { sendJson(["type": "wifi_config", "device_id": id, "ssid": ssid, "password": pass]) }
     func sendVolume(_ id: String, _ v: Int) { sendJson(["type": "set_volume", "device_id": id, "volume": v]) }
+    func sendSpeakerVolume(_ id: String, _ v: Int) { sendJson(["type": "set_speaker_volume", "device_id": id, "volume": v]) }
     func sendFactoryReset(_ id: String) { sendJson(["type": "factory_reset", "device_id": id]) }
     func sendSwitchNetwork(_ id: String, _ mode: String) { sendJson(["type": "switch_network", "device_id": id, "mode": mode]) }
     func sendPairingGpio(_ id: String, _ level: Int) { sendJson(["type": "pairing_gpio", "device_id": id, "level": level]) }

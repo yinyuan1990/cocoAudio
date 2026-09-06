@@ -75,6 +75,7 @@ private fun App() {
     val ctx = LocalContext.current
     val call by WsClient.call.collectAsState()
     val presence by WsClient.deviceOnline.collectAsState()
+    val signal by WsClient.deviceSignal.collectAsState()
     val wifiList by WsClient.wifiList.collectAsState()
     var deviceId by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
@@ -91,6 +92,7 @@ private fun App() {
 
     val inCall = call is WsClient.Call.Calling || call is WsClient.Call.InCall
     val online = presence?.let { it.first == deviceId && it.second } ?: false
+    val rssi = signal?.let { if (it.first == deviceId) it.second else null }
 
     Box(Modifier.fillMaxSize().background(Bg)) {
         if (inCall) {
@@ -99,6 +101,7 @@ private fun App() {
             DialerScreen(
                 deviceId = deviceId,
                 online = online,
+                rssi = if (online) rssi else null,
                 onDigit = { if (deviceId.length < 10) deviceId += it },
                 onDelete = { if (deviceId.isNotEmpty()) deviceId = deviceId.dropLast(1) },
                 onCall = { if (needId()) startCall(ctx, deviceId) },
@@ -154,7 +157,7 @@ private fun App() {
 
 @Composable
 private fun DialerScreen(
-    deviceId: String, online: Boolean,
+    deviceId: String, online: Boolean, rssi: Int? = null,
     onDigit: (String) -> Unit, onDelete: () -> Unit, onCall: () -> Unit,
     onSettings: () -> Unit, onWifi: () -> Unit
 ) {
@@ -163,7 +166,7 @@ private fun DialerScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             CircleIcon("⚙") { onSettings() }
             Spacer(Modifier.weight(1f))
-            PresencePill(online)
+            PresencePill(online, rssi)
             Spacer(Modifier.weight(1f))
             CircleIcon("📶") { onWifi() }
         }
@@ -227,16 +230,29 @@ private fun CircleIcon(glyph: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PresencePill(online: Boolean) {
+private fun PresencePill(online: Boolean, rssi: Int? = null) {
     val c = if (online) Green else Red
+    val label = when {
+        !online -> "不在线"
+        rssi != null -> "设备在线 · 信号 ${signalBars(rssi)} (${rssi}dBm)"
+        else -> "设备在线"
+    }
     Row(
         Modifier.clip(RoundedCornerShape(20.dp)).background(c.copy(alpha = 0.12f)).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(c))
         Spacer(Modifier.width(8.dp))
-        Text(if (online) "设备在线" else "不在线", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c)
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c)
     }
+}
+
+/** WiFi 信号强度(dBm)转成 ▂▄▆█ 直观强弱 */
+private fun signalBars(rssi: Int): String = when {
+    rssi >= -55 -> "▂▄▆█"
+    rssi >= -65 -> "▂▄▆"
+    rssi >= -75 -> "▂▄"
+    else -> "▂"
 }
 
 @Composable
@@ -280,6 +296,7 @@ private fun CallCtrl(glyph: String, label: String, active: Boolean, onClick: () 
 @Composable
 private fun SettingsSheet(deviceId: String, onDismiss: () -> Unit) {
     var volume by remember { mutableStateOf(80f) }
+    var speakerVolume by remember { mutableStateOf(50f) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Bg) {
         Column(Modifier.padding(24.dp).padding(bottom = 24.dp)) {
             Text("设备设置", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
@@ -290,6 +307,32 @@ private fun SettingsSheet(deviceId: String, onDismiss: () -> Unit) {
             Slider(
                 value = volume, onValueChange = { volume = it }, valueRange = 0f..100f,
                 onValueChangeFinished = { WsClient.sendVolume(deviceId, volume.toInt()) },
+                thumb = {
+                    Box(
+                        Modifier.size(24.dp)
+                            .shadow(3.dp, CircleShape)
+                            .background(Color.White, CircleShape)
+                    )
+                },
+                track = { state ->
+                    val frac = (state.value / 100f).coerceIn(0f, 1f)
+                    Box(
+                        Modifier.fillMaxWidth().height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)).background(Color(0xFFD1D1D6))
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth(frac).height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)).background(Blue)
+                        )
+                    }
+                }
+            )
+            Spacer(Modifier.height(14.dp))
+
+            Text("喇叭音量  ${speakerVolume.toInt()}%", fontSize = 14.sp, color = Sub)
+            Slider(
+                value = speakerVolume, onValueChange = { speakerVolume = it }, valueRange = 0f..100f,
+                onValueChangeFinished = { WsClient.sendSpeakerVolume(deviceId, speakerVolume.toInt()) },
                 thumb = {
                     Box(
                         Modifier.size(24.dp)

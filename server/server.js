@@ -224,7 +224,13 @@ wss.on('connection', (ws, req) => {
     switch (m.type) {
       case 'connect_app':
         ws.role = 'app'; ws.session.role = 'app'; apps.add(ws); glog('App 已连接'); pushEvent('app', { count: apps.size }); break;
-      case 'ping': send(ws, { type: 'pong' }); break;
+      case 'ping':
+        send(ws, { type: 'pong' });
+        // 设备心跳带的 WiFi 信号强度转发给所有 App 显示
+        if (ws.role === 'device' && ws.deviceId != null && m.rssi != null) {
+          apps.forEach(a => send(a, { type: 'device_signal', device_id: ws.deviceId, rssi: m.rssi }));
+        }
+        break;
       case 'check_device_status':
         send(ws, { type: 'device_status', device_id: m.device_id, online: mode === 'echo' ? true : devices.has(m.device_id) }); break;
       case 'call_request': {
@@ -246,7 +252,7 @@ wss.on('connection', (ws, req) => {
       case 'wifi_config':
         send(ws, { type: 'wifi_test_result', success: true });
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', 'wifi_config', ''); } } break;
-      case 'set_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio':
+      case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio':
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', m.type, JSON.stringify(m).slice(0, 120)); } } break;
       case 'connect_device':
         ws.role = 'device'; ws.session.role = 'device'; ws.deviceId = m.device_id; ws.session.deviceId = m.device_id;
@@ -266,7 +272,11 @@ wss.on('connection', (ws, req) => {
       apps.forEach(a => send(a, { type: 'device_offline', device_id: ws.deviceId }));
       glog(`设备下线 ${ws.deviceId}`); pushEvent('device', { device_id: ws.deviceId, online: false });
     }
-    if (ws.peer) ws.peer.peer = null;
+    if (ws.peer) {
+      // 一方断开，通知另一方挂断，避免设备麦克风一直开着
+      if (ws.peer.readyState === 1) { send(ws.peer, { type: 'call_ended' }); ev(ws.peer, 'out', 'call_ended', 'peer_closed'); }
+      ws.peer.peer = null;
+    }
     closeSession(ws);
   });
 });
