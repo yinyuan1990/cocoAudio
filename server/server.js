@@ -248,6 +248,17 @@ wss.on('connection', (ws, req) => {
         else {
           const dev = devices.get(m.device_id);
           if (!dev) { send(ws, { type: 'call_result', success: false, error: 'device offline 设备不在线' }); ev(ws, 'out', 'call_result', 'offline'); break; }
+          // 设备正在和别的 App 通话：拒绝，不能抢线（对端已断开的残留状态则清掉）
+          if (dev.peer && dev.peer !== ws) {
+            if (dev.peer.readyState === 1) {
+              send(ws, { type: 'call_result', success: false, error: 'busy 设备正在通话中，请稍后再拨' });
+              ev(ws, 'out', 'call_result', 'busy'); glog(`设备 ${m.device_id} 占线，拒绝 App[${ws.platform || '?'}] 呼叫`);
+              break;
+            }
+            dev.peer.peer = null; dev.peer = null;
+          }
+          // 本 App 若还挂着上一通的对端，先清理
+          if (ws.peer && ws.peer !== dev) { send(ws.peer, { type: 'call_ended' }); ws.peer.peer = null; }
           ws.peer = dev; dev.peer = ws; send(dev, { type: 'incoming_call' }); ev(dev, 'out', 'incoming_call', ''); }
         break;
       }
