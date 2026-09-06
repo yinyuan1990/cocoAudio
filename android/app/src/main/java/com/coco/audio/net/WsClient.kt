@@ -91,7 +91,9 @@ object WsClient {
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             _conn.value = Conn.Connected
-            webSocket.send(JSONObject().put("type", "connect_app").toString())
+            // 带上平台与版本，服务器日志里可区分 Android / iOS
+            webSocket.send(JSONObject().put("type", "connect_app").put("platform", "android")
+                .put("version", com.coco.audio.BuildConfig.VERSION_NAME).put("os", "Android ${android.os.Build.VERSION.RELEASE}").toString())
             Log.i(TAG, "WebSocket 已连接 $SERVER_URL")
         }
         override fun onMessage(webSocket: WebSocket, text: String) {

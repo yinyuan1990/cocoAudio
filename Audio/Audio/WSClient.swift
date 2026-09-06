@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// 心声 WebSocket 客户端。收发 JSON 信令与二进制语音。
 final class WSClient: NSObject, ObservableObject {
@@ -98,7 +99,10 @@ final class WSClient: NSObject, ObservableObject {
 extension WSClient: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         DispatchQueue.main.async { self.connected = true }
-        sendJson(["type": "connect_app"])
+        // 带上平台与版本，服务器日志里可区分 Android / iOS
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        sendJson(["type": "connect_app", "platform": "ios", "version": ver,
+                  "os": "iOS " + UIDevice.current.systemVersion])
         pingTimer?.invalidate()
         pingTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.sendJson(["type": "ping"]) }
     }

@@ -232,27 +232,42 @@ private fun CircleIcon(glyph: String, onClick: () -> Unit) {
 @Composable
 private fun PresencePill(online: Boolean, rssi: Int? = null) {
     val c = if (online) Green else Red
-    val label = when {
-        !online -> "不在线"
-        rssi != null -> "设备在线 · 信号 ${signalBars(rssi)} (${rssi}dBm)"
-        else -> "设备在线"
-    }
     Row(
-        Modifier.clip(RoundedCornerShape(20.dp)).background(c.copy(alpha = 0.12f)).padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.clip(RoundedCornerShape(20.dp)).background(c.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(8.dp).clip(CircleShape).background(c))
         Spacer(Modifier.width(8.dp))
-        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c)
+        Text(if (online) "设备在线" else "不在线", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c)
+        if (online && rssi != null) {
+            Spacer(Modifier.width(10.dp))
+            SignalBars(level = signalLevel(rssi), color = c)
+            Spacer(Modifier.width(4.dp))
+            Text("${rssi}dBm", fontSize = 11.sp, color = c.copy(alpha = 0.8f))
+        }
     }
 }
 
-/** WiFi 信号强度(dBm)转成 ▂▄▆█ 直观强弱 */
-private fun signalBars(rssi: Int): String = when {
-    rssi >= -55 -> "▂▄▆█"
-    rssi >= -65 -> "▂▄▆"
-    rssi >= -75 -> "▂▄"
-    else -> "▂"
+/** WiFi 信号强度(dBm) -> 1~4 格 */
+private fun signalLevel(rssi: Int): Int = when {
+    rssi >= -55 -> 4
+    rssi >= -65 -> 3
+    rssi >= -75 -> 2
+    else -> 1
+}
+
+/** 画出来的 4 格信号条，亮 level 格 */
+@Composable
+private fun SignalBars(level: Int, color: Color) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (i in 1..4) {
+            Box(
+                Modifier.width(3.dp).height((4 + i * 3).dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(if (i <= level) color else color.copy(alpha = 0.25f))
+            )
+        }
+    }
 }
 
 @Composable

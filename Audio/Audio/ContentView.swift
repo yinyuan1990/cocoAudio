@@ -154,27 +154,38 @@ private struct DialerView: View {
         if online, let s = ws.deviceSignal, s.id == deviceId { return s.rssi }
         return nil
     }
-    private func signalBars(_ r: Int) -> String {
+    /// WiFi 信号强度(dBm) -> 1~4 格
+    private func signalLevel(_ r: Int) -> Int {
         switch r {
-        case -55...: return "▂▄▆█"
-        case -65...: return "▂▄▆"
-        case -75...: return "▂▄"
-        default: return "▂"
+        case -55...: return 4
+        case -65...: return 3
+        case -75...: return 2
+        default: return 1
+        }
+    }
+
+    /// 画出来的 4 格信号条
+    private func signalBars(level: Int, color: Color) -> some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(1...4, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(i <= level ? color : color.opacity(0.25))
+                    .frame(width: 3, height: CGFloat(4 + i * 3))
+            }
         }
     }
 
     private var presencePill: some View {
         let c = online ? green : red
-        let label: String = {
-            if !online { return "不在线" }
-            if let r = rssi { return "设备在线 · 信号 \(signalBars(r)) (\(r)dBm)" }
-            return "设备在线"
-        }()
         return HStack(spacing: 8) {
             Circle().fill(c).frame(width: 8, height: 8)
-            Text(label).font(.system(size: 13, weight: .semibold)).foregroundColor(c)
+            Text(online ? "设备在线" : "不在线").font(.system(size: 13, weight: .semibold)).foregroundColor(c)
+            if online, let r = rssi {
+                signalBars(level: signalLevel(r), color: c).padding(.leading, 2)
+                Text("\(r)dBm").font(.system(size: 11)).foregroundColor(c.opacity(0.8))
+            }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 8)
         .background(c.opacity(0.12)).clipShape(Capsule())
     }
 

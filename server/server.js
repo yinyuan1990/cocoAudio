@@ -103,6 +103,7 @@ function closeSession(ws) {
 function summary(s, live) {
   return {
     id: s.id, live, role: s.role, deviceId: s.deviceId, addr: s.addr,
+    platform: s.platform || null, appVersion: s.appVersion || null, os: s.os || null, fw: s.fw || null,
     connectedAt: s.connectedAt, disconnectedAt: s.disconnectedAt,
     audioIn: s.audioIn.frames, audioBad: s.audioIn.bad, audioOut: s.audioOut.frames,
     events: s.events.length,
@@ -222,8 +223,16 @@ wss.on('connection', (ws, req) => {
     let m; try { m = JSON.parse(data.toString()); } catch { return; }
     if (m.type !== 'ping') ev(ws, 'in', m.type, JSON.stringify(m).slice(0, 160));
     switch (m.type) {
-      case 'connect_app':
-        ws.role = 'app'; ws.session.role = 'app'; apps.add(ws); glog('App 已连接'); pushEvent('app', { count: apps.size }); break;
+      case 'connect_app': {
+        // App 上报 platform(android/ios)、version、os，便于区分两端日志
+        const plat = (m.platform || 'unknown').toLowerCase();
+        ws.role = 'app'; ws.session.role = 'app';
+        ws.platform = plat; ws.session.platform = plat;
+        ws.session.appVersion = m.version || null; ws.session.os = m.os || null;
+        apps.add(ws);
+        glog(`App 已连接 [${plat}${m.version ? ' ' + m.version : ''}${m.os ? ' / ' + m.os : ''}]`);
+        pushEvent('app', { count: apps.size, platform: plat }); break;
+      }
       case 'ping':
         send(ws, { type: 'pong' });
         // 设备心跳带的 WiFi 信号强度转发给所有 App 显示
@@ -234,7 +243,7 @@ wss.on('connection', (ws, req) => {
       case 'check_device_status':
         send(ws, { type: 'device_status', device_id: m.device_id, online: mode === 'echo' ? true : devices.has(m.device_id) }); break;
       case 'call_request': {
-        ws.callId = m.device_id; glog(`App 呼叫 ${m.device_id}`); pushEvent('call', { device_id: m.device_id, state: 'calling' });
+        ws.callId = m.device_id; glog(`App[${ws.platform || '?'}] 呼叫 ${m.device_id}`); pushEvent('call', { device_id: m.device_id, state: 'calling' });
         if (mode === 'echo') { send(ws, { type: 'call_connected' }); ev(ws, 'out', 'call_connected', 'echo'); }
         else {
           const dev = devices.get(m.device_id);
