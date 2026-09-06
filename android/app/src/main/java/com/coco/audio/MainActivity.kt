@@ -259,6 +259,8 @@ private fun signalBars(rssi: Int): String = when {
 private fun InCallScreen(deviceId: String, connected: Boolean, onEnd: () -> Unit) {
     var mic by remember { mutableStateOf(false) }
     var spk by remember { mutableStateOf(true) }
+    var micVolume by remember { mutableStateOf(80f) }
+    var speakerVolume by remember { mutableStateOf(50f) }
     Column(
         Modifier.fillMaxSize().background(Color(0xFF1C1C1E)).padding(top = 96.dp, bottom = 46.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -267,6 +269,15 @@ private fun InCallScreen(deviceId: String, connected: Boolean, onEnd: () -> Unit
         Spacer(Modifier.height(10.dp))
         Text(if (connected) "通话中" else "正在呼叫…", fontSize = 16.sp, color = Color(0x99EBEBF5))
         Spacer(Modifier.weight(1f))
+
+        // 通话中直接调设备两路音量：咪头（对方听到我们的）/ 喇叭（设备外放）
+        Column(Modifier.fillMaxWidth().padding(horizontal = 36.dp)) {
+            InCallVolume("🎙 设备咪头音量", micVolume, { micVolume = it }) { WsClient.sendVolume(deviceId, micVolume.toInt()) }
+            Spacer(Modifier.height(6.dp))
+            InCallVolume("🔊 设备喇叭音量", speakerVolume, { speakerVolume = it }) { WsClient.sendSpeakerVolume(deviceId, speakerVolume.toInt()) }
+        }
+        Spacer(Modifier.height(26.dp))
+
         Row(horizontalArrangement = Arrangement.spacedBy(34.dp)) {
             CallCtrl("🎤", "静音", mic) { mic = !mic }
             CallCtrl("🔊", "免提", spk) { spk = !spk }
@@ -276,6 +287,26 @@ private fun InCallScreen(deviceId: String, connected: Boolean, onEnd: () -> Unit
             Modifier.size(74.dp).clip(CircleShape).background(Red).clickable { onEnd() },
             contentAlignment = Alignment.Center
         ) { Text("📵", fontSize = 30.sp) }
+    }
+}
+
+/** 通话页深色底上的音量滑块，松手时才发送指令 */
+@Composable
+private fun InCallVolume(label: String, value: Float, onChange: (Float) -> Unit, onFinished: () -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontSize = 13.sp, color = Color(0xD9EBEBF5))
+            Text("${value.toInt()}%", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+        }
+        Slider(
+            value = value, onValueChange = onChange, valueRange = 0f..100f,
+            onValueChangeFinished = onFinished,
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Blue,
+                inactiveTrackColor = Color(0x4DFFFFFF)
+            )
+        )
     }
 }
 

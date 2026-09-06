@@ -205,6 +205,8 @@ private struct InCallView: View {
     let onEnd: () -> Void
     @State private var mic = false
     @State private var spk = true
+    @State private var micVolume: Double = 80
+    @State private var speakerVolume: Double = 50
 
     var body: some View {
         ZStack {
@@ -214,6 +216,15 @@ private struct InCallView: View {
                 Text(deviceId).font(.system(size: 34, weight: .medium)).foregroundColor(.white)
                 Text(connected ? "通话中" : "正在呼叫…").font(.system(size: 16)).foregroundColor(Color(white: 0.9, opacity: 0.6)).padding(.top, 10)
                 Spacer()
+
+                // 通话中直接调设备两路音量：咪头（对方听到我们的）/ 喇叭（设备外放）
+                VStack(spacing: 6) {
+                    volumeRow("🎙 设备咪头音量", $micVolume) { WSClient.shared.sendVolume(deviceId, Int(micVolume)) }
+                    volumeRow("🔊 设备喇叭音量", $speakerVolume) { WSClient.shared.sendSpeakerVolume(deviceId, Int(speakerVolume)) }
+                }
+                .padding(.horizontal, 36)
+                Spacer().frame(height: 26)
+
                 HStack(spacing: 34) {
                     ctrl("mic.slash.fill", "静音", mic) { mic.toggle(); onMute(mic) }
                     ctrl("speaker.wave.2.fill", "免提", spk) { spk.toggle() }
@@ -225,6 +236,19 @@ private struct InCallView: View {
                 }
                 Spacer().frame(height: 46)
             }
+        }
+    }
+
+    /// 深色底上的音量滑块，松手时才发送指令
+    private func volumeRow(_ label: String, _ value: Binding<Double>, onFinished: @escaping () -> Void) -> some View {
+        VStack(spacing: 2) {
+            HStack {
+                Text(label).font(.system(size: 13)).foregroundColor(Color(white: 0.9, opacity: 0.85))
+                Spacer()
+                Text("\(Int(value.wrappedValue))%").font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+            }
+            Slider(value: value, in: 0...100, step: 5) { editing in if !editing { onFinished() } }
+                .tint(blue)
         }
     }
 
