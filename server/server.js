@@ -118,6 +118,37 @@ function stats() {
   };
 }
 
+// ---------------- 语音抓包（排查音质问题）----------------
+// POST /api/record {device_id, seconds} 开始录制该设备通话中两个方向的原始 ADPCM 帧，
+// 到时后落盘 LOG_DIR/rec-<dev>-<ts>-dev2app.adpcm / -app2dev.adpcm 和帧到达时间 .json
+const recorders = new Map();   // device_id -> {dev2app:[], app2dev:[], t0, until, tsIn:[], tsOut:[]}
+function recCapture(deviceId, buf, fromDevice) {
+  const r = recorders.get(deviceId); if (!r) return;
+  const now = Date.now();
+  if (!r.started) {
+    r.started = true; r.t0 = now; r.until = now + r.seconds * 1000;
+    r.timer = setTimeout(() => recFinish(deviceId), r.seconds * 1000 + 500);   // 录满自动落盘，不依赖后续帧
+    glog(`录音开始采集 ${deviceId}（${r.seconds}s）`);
+  }
+  if (now > r.until) { recFinish(deviceId); return; }
+  if (fromDevice) { r.dev2app.push(Buffer.from(buf)); r.tsIn.push(now - r.t0); }
+  else            { r.app2dev.push(Buffer.from(buf)); r.tsOut.push(now - r.t0); }
+}
+function recFinish(deviceId) {
+  const r = recorders.get(deviceId); if (!r) return;
+  recorders.delete(deviceId);
+  if (r.timer) clearTimeout(r.timer);
+  if (!r.started) return;
+  const ts = new Date(r.t0).toISOString().replace(/[:.]/g, '-');
+  const base = path.join(LOG_DIR, `rec-${deviceId}-${ts}`);
+  try {
+    fs.writeFileSync(base + '-dev2app.adpcm', Buffer.concat(r.dev2app));
+    fs.writeFileSync(base + '-app2dev.adpcm', Buffer.concat(r.app2dev));
+    fs.writeFileSync(base + '-timing.json', JSON.stringify({ tsIn: r.tsIn, tsOut: r.tsOut }));
+    glog(`录音完成 ${deviceId}: 设备->App ${r.dev2app.length} 帧, App->设备 ${r.app2dev.length} 帧 -> ${path.basename(base)}`);
+  } catch (e) { glog(`录音落盘失败: ${e.message}`); }
+}
+
 // ---------------- HTTP 管理 API ----------------
 function readBody(req) {
   return new Promise(resolve => { let b = ''; req.on('data', c => b += c); req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch { resolve({}); } }); });
@@ -194,6 +225,27 @@ const server = http.createServer(async (req, res) => {
     send(dev, b); ev(dev, 'out', 'admin_cmd', b.type); glog(`后台下发 ${b.type} -> ${b.device_id}`);
     return json({ ok: true });
   }
+  if (p === '/api/record' && req.method === 'POST') {
+    const b = await readBody(req);
+    if (!b.device_id) return json({ ok: false, error: 'need device_id' }, 400);
+    const seconds = Math.min(Number(b.seconds) || 30, 300);
+    // 待命：收到该设备第一帧语音才开始计时；15 分钟内没通话则作废
+    const rec = { dev2app: [], app2dev: [], tsIn: [], tsOut: [], seconds, started: false, t0: Date.now(), until: 0 };
+    recorders.set(b.device_id, rec);
+    // 只作废"自己这一个"任务，不能误伤后来重新布下的
+    setTimeout(() => { if (recorders.get(b.device_id) === rec && !rec.started) { recorders.delete(b.device_id); glog(`录音待命超时作废 ${b.device_id}`); } }, 15 * 60 * 1000);
+    glog(`录音待命 ${b.device_id}：下一通电话开始后录 ${seconds}s`);
+    return json({ ok: true, seconds, armed: true });
+  }
+  if (p === '/api/record/list' && req.method === 'GET') {
+    try { return json(fs.readdirSync(LOG_DIR).filter(f => f.startsWith('rec-')).sort()); } catch { return json([]); }
+  }
+  if (p === '/api/record/file' && req.method === 'GET') {
+    const name = path.basename(u.searchParams.get('name') || '');
+    const file = path.join(LOG_DIR, name);
+    if (!name.startsWith('rec-') || !fs.existsSync(file)) return json({ error: 'not found' }, 404);
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream' }); return res.end(fs.readFileSync(file));
+  }
   if (p === '/api/kick' && req.method === 'POST') {
     const b = await readBody(req); const dev = devices.get(b.device_id);
     if (dev) { dev.close(4000, 'kicked'); return json({ ok: true }); }
@@ -216,6 +268,8 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
       checkAudio(ws, data, true);
+      if (ws.role === 'device' && ws.deviceId) recCapture(ws.deviceId, data, true);
+      else if (ws.peer && ws.peer.deviceId) recCapture(ws.peer.deviceId, data, false);
       if (mode === 'echo' && ws.role === 'app') { ws.send(data, { binary: true }); checkAudio(ws, data, false); }
       else if (mode === 'relay' && ws.peer && ws.peer.readyState === 1) { ws.peer.send(data, { binary: true }); checkAudio(ws.peer, data, false); }
       return;
@@ -264,7 +318,10 @@ wss.on('connection', (ws, req) => {
       }
       case 'call_end':
         send(ws, { type: 'call_ended' });
-        if (ws.peer) { send(ws.peer, { type: 'call_ended' }); ev(ws.peer, 'out', 'call_ended', ''); ws.peer.peer = null; ws.peer = null; }
+        if (ws.peer) {
+          // 通话结束时若正在录音，立即落盘（不足设定秒数也保存）
+          const devId = ws.peer.deviceId || ws.deviceId; if (devId && recorders.get(devId)?.started) recFinish(devId);
+          send(ws.peer, { type: 'call_ended' }); ev(ws.peer, 'out', 'call_ended', ''); ws.peer.peer = null; ws.peer = null; }
         pushEvent('call', { state: 'ended' }); break;
       case 'wifi_scan':
         send(ws, { type: 'wifi_list', device_id: m.device_id, data: [ { ssid: 'Home-WiFi-5G', rssi: -42 }, { ssid: 'Office_2.4G', rssi: -58 }, { ssid: 'TP-LINK_8823', rssi: -71 } ] });
