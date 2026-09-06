@@ -18,6 +18,7 @@ struct ContentView: View {
 
     private var inCall: Bool { ws.callState == .calling || ws.callState == .inCall }
     private var online: Bool { if let p = ws.deviceOnline { return p.id == deviceId && p.online }; return false }
+    private var rssi: Int? { if online, let s = ws.deviceSignal, s.id == deviceId { return s.rssi }; return nil }
 
     var body: some View {
         ZStack {
@@ -28,7 +29,7 @@ struct ContentView: View {
                            onSpeaker: { controller.setSpeaker($0) },
                            onEnd: { ws.endCall() })
             } else {
-                DialerView(deviceId: $deviceId, online: online,
+                DialerView(deviceId: $deviceId, online: online, rssi: rssi,
                            onCall: { if deviceId.count >= 6 { ws.ensureConnected(); ws.callDevice(deviceId) } },
                            onSettings: { if deviceId.count >= 6 { showSettings = true } },
                            onWifi: { if deviceId.count >= 6 { ws.requestWifiScan(deviceId); showWifi = true } })
@@ -93,6 +94,7 @@ private struct WifiView: View {
 private struct DialerView: View {
     @Binding var deviceId: String
     let online: Bool
+    let rssi: Int?
     let onCall: () -> Void
     let onSettings: () -> Void
     let onWifi: () -> Void
@@ -151,18 +153,12 @@ private struct DialerView: View {
         }
     }
 
-    private var rssi: Int? {
-        if online, let s = ws.deviceSignal, s.id == deviceId { return s.rssi }
-        return nil
-    }
     /// WiFi 信号强度(dBm) -> 1~4 格
     private func signalLevel(_ r: Int) -> Int {
-        switch r {
-        case -55...: return 4
-        case -65...: return 3
-        case -75...: return 2
-        default: return 1
-        }
+        if r >= -55 { return 4 }
+        if r >= -65 { return 3 }
+        if r >= -75 { return 2 }
+        return 1
     }
 
     /// 画出来的 4 格信号条
