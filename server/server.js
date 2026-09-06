@@ -113,7 +113,7 @@ function stats() {
   return {
     mode, port: PORT, uptimeSec: Math.floor((Date.now() - START) / 1000),
     deviceCount: devices.size, appCount: apps.size, activeCalls: calls,
-    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer })),
+    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer, fw: d.fw || null })),
   };
 }
 
@@ -254,11 +254,16 @@ wss.on('connection', (ws, req) => {
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', 'wifi_config', ''); } } break;
       case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio':
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', m.type, JSON.stringify(m).slice(0, 120)); } } break;
-      case 'connect_device':
+      case 'connect_device': {
+        // 同一设备号重连：先把旧连接踢掉，避免僵尸会话；旧连接的 close 里会发现自己已被替代而不动在线表
+        const old = devices.get(m.device_id);
+        if (old && old !== ws) { glog(`设备 ${m.device_id} 重连，关闭旧连接`); try { old.terminate(); } catch {} }
         ws.role = 'device'; ws.session.role = 'device'; ws.deviceId = m.device_id; ws.session.deviceId = m.device_id;
+        ws.fw = m.fw || null; ws.session.fw = ws.fw;
         ws.connectedAt = Date.now(); devices.set(m.device_id, ws);
-        glog(`设备上线 ${m.device_id}`); pushEvent('device', { device_id: m.device_id, online: true });
+        glog(`设备上线 ${m.device_id}${ws.fw ? ' 固件 ' + ws.fw : ''}`); pushEvent('device', { device_id: m.device_id, online: true, fw: ws.fw });
         apps.forEach(a => send(a, { type: 'device_online', device_id: m.device_id })); break;
+      }
       case 'call_accept':
         if (ws.peer) { send(ws.peer, { type: 'call_connected' }); ev(ws.peer, 'out', 'call_connected', ''); glog(`设备接听 ${ws.deviceId}`); pushEvent('call', { device_id: ws.deviceId, state: 'connected' }); } break;
       default: glog(`未处理消息 ${JSON.stringify(m)}`);
@@ -268,9 +273,14 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (ws.role === 'app') { apps.delete(ws); pushEvent('app', { count: apps.size }); }
     if (ws.role === 'device' && ws.deviceId) {
-      devices.delete(ws.deviceId);
-      apps.forEach(a => send(a, { type: 'device_offline', device_id: ws.deviceId }));
-      glog(`设备下线 ${ws.deviceId}`); pushEvent('device', { device_id: ws.deviceId, online: false });
+      // 只有在线表里登记的还是"自己"时才算下线；若已被同号新连接替代，不能把新连接删掉
+      if (devices.get(ws.deviceId) === ws) {
+        devices.delete(ws.deviceId);
+        apps.forEach(a => send(a, { type: 'device_offline', device_id: ws.deviceId }));
+        glog(`设备下线 ${ws.deviceId}`); pushEvent('device', { device_id: ws.deviceId, online: false });
+      } else {
+        glog(`设备 ${ws.deviceId} 旧连接关闭（已被新连接替代，仍在线）`);
+      }
     }
     if (ws.peer) {
       // 一方断开，通知另一方挂断，避免设备麦克风一直开着
