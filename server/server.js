@@ -114,7 +114,7 @@ function stats() {
   return {
     mode, port: PORT, uptimeSec: Math.floor((Date.now() - START) / 1000),
     deviceCount: devices.size, appCount: apps.size, activeCalls: calls,
-    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer, fw: d.fw || null })),
+    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer || !!d.busy, fw: d.fw || null, net: d.net || null, state: d.state || null })),
   };
 }
 
@@ -289,11 +289,33 @@ wss.on('connection', (ws, req) => {
       }
       case 'ping':
         send(ws, { type: 'pong' });
-        // 设备心跳带的 WiFi 信号强度转发给所有 App 显示
+        // 设备心跳带的 WiFi 信号强度 / 联网方式 / 通话状态转发给所有 App 显示
         if (ws.role === 'device' && ws.deviceId != null && m.rssi != null) {
-          apps.forEach(a => send(a, { type: 'device_signal', device_id: ws.deviceId, rssi: m.rssi }));
+          if (m.net) ws.net = m.net;
+          if (m.state) ws.state = m.state;
+          apps.forEach(a => send(a, { type: 'device_signal', device_id: ws.deviceId, rssi: m.rssi, net: ws.net || null, state: ws.state || null }));
         }
         break;
+      case 'device_state': {
+        // 设备占线状态（蓝牙通话 / 电话卡通话等非网络通话）：占线期间 App 呼叫直接回忙
+        if (ws.role !== 'device') break;
+        ws.busy = !!m.busy; ws.state = m.state || (m.busy ? 'busy' : 'idle');
+        glog(`设备 ${ws.deviceId} 状态 ${ws.state}${ws.busy ? '（占线）' : ''}`);
+        pushEvent('device', { device_id: ws.deviceId, online: true, fw: ws.fw, state: ws.state, busy: ws.busy });
+        apps.forEach(a => send(a, { type: 'device_state', device_id: ws.deviceId, state: ws.state, busy: ws.busy }));
+        break;
+      }
+      case 'call_reject': {
+        // 设备拒接（收到 incoming_call 时已被别的通话占线）：告诉呼叫方忙，清掉配对
+        if (ws.role !== 'device') break;
+        glog(`设备 ${ws.deviceId} 拒接（${m.reason || 'busy'}）`);
+        if (ws.peer) {
+          send(ws.peer, { type: 'call_result', success: false, error: `busy 设备正在通话中(${m.reason || 'busy'})，请稍后再拨` });
+          ev(ws.peer, 'out', 'call_result', 'busy(device_reject)');
+          ws.peer.peer = null; ws.peer = null;
+        }
+        break;
+      }
       case 'check_device_status':
         send(ws, { type: 'device_status', device_id: m.device_id, online: mode === 'echo' ? true : devices.has(m.device_id) }); break;
       case 'call_request': {
@@ -302,6 +324,12 @@ wss.on('connection', (ws, req) => {
         else {
           const dev = devices.get(m.device_id);
           if (!dev) { send(ws, { type: 'call_result', success: false, error: 'device offline 设备不在线' }); ev(ws, 'out', 'call_result', 'offline'); break; }
+          // 设备正在蓝牙通话 / 电话卡通话（设备自己上报的占线）：直接回忙
+          if (dev.busy) {
+            send(ws, { type: 'call_result', success: false, error: `busy 设备正在通话中(${dev.state || 'busy'})，请稍后再拨` });
+            ev(ws, 'out', 'call_result', `busy(${dev.state})`); glog(`设备 ${m.device_id} 占线(${dev.state})，拒绝 App[${ws.platform || '?'}] 呼叫`);
+            break;
+          }
           // 设备正在和别的 App 通话：拒绝，不能抢线（对端已断开的残留状态则清掉）
           if (dev.peer && dev.peer !== ws) {
             if (dev.peer.readyState === 1) {
@@ -337,8 +365,10 @@ wss.on('connection', (ws, req) => {
         if (old && old !== ws) { glog(`设备 ${m.device_id} 重连，关闭旧连接`); try { old.terminate(); } catch {} }
         ws.role = 'device'; ws.session.role = 'device'; ws.deviceId = m.device_id; ws.session.deviceId = m.device_id;
         ws.fw = m.fw || null; ws.session.fw = ws.fw;
+        ws.net = m.net || null; ws.state = m.state || 'idle'; ws.busy = !!(m.state && m.state !== 'idle');
         ws.connectedAt = Date.now(); devices.set(m.device_id, ws);
-        glog(`设备上线 ${m.device_id}${ws.fw ? ' 固件 ' + ws.fw : ''}`); pushEvent('device', { device_id: m.device_id, online: true, fw: ws.fw });
+        glog(`设备上线 ${m.device_id}${ws.fw ? ' 固件 ' + ws.fw : ''}${ws.net ? ' 网络 ' + ws.net : ''}${ws.busy ? ' 状态 ' + ws.state : ''}`);
+        pushEvent('device', { device_id: m.device_id, online: true, fw: ws.fw, net: ws.net, state: ws.state, busy: ws.busy });
         apps.forEach(a => send(a, { type: 'device_online', device_id: m.device_id })); break;
       }
       case 'call_accept':
