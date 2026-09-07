@@ -82,6 +82,7 @@ bit1..0  idx   分片序号 0~3
 | `wifi_config` | `ssid, password` | 下发 WiFi（同 WS） |
 | `switch_network` | `mode`: `wifi` / `4g` / `auto` | 网络模式，存芯片，重启网络生效 |
 | `factory_reset` | — | 恢复出厂 |
+| `set_log` | `module`(sys/net/ws/audio/ble/cmd/all), `level` 0~3, `remote` bool, `ble_stats` bool（均可选） | 调板子日志级别 / 开关日志上送服务器 / 让板子打一行蓝牙统计；板子回 `log_config {remote, levels}` |
 
 ## 5. 一次蓝牙对讲的完整流程
 
