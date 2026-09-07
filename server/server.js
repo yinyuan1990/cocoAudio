@@ -114,8 +114,24 @@ function stats() {
   return {
     mode, port: PORT, uptimeSec: Math.floor((Date.now() - START) / 1000),
     deviceCount: devices.size, appCount: apps.size, activeCalls: calls,
-    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer || !!d.busy, fw: d.fw || null, net: d.net || null, state: d.state || null })),
+    devices: [...devices.values()].map(d => ({ device_id: d.deviceId, since: d.connectedAt, inCall: !!d.peer || !!d.busy, fw: d.fw || null, net: d.net || null, state: d.state || null, heap: d.heap ?? null, ble: d.ble || null })),
   };
+}
+
+// ---------------- 设备日志上送 ----------------
+// 设备（固件 v17+）把板子日志以 device_log 发上来：内存保留每台最近 500 行，并追加到 LOG_DIR/devlog-<id>-YYYYMMDD.log，
+// GET /api/device-log?device_id=xxx&n=200 拉取。客户不开串口我们也能看板子在干什么。
+const devLogs = new Map();   // device_id -> [{seq, t, text}]
+let devLogSeq = 0;
+function devLog(deviceId, text) {
+  let arr = devLogs.get(deviceId); if (!arr) { arr = []; devLogs.set(deviceId, arr); }
+  const item = { seq: ++devLogSeq, t: Date.now(), text };
+  arr.push(item); if (arr.length > 500) arr.shift();
+  admins.forEach(a => send(a, { type: 'device_log', device_id: deviceId, ...item }));
+  try {
+    const file = path.join(LOG_DIR, `devlog-${deviceId}-${new Date().toISOString().slice(0, 10)}.log`);
+    fs.appendFile(file, `${new Date(item.t).toISOString()} ${text}\n`, () => {});
+  } catch {}
 }
 
 // ---------------- 语音抓包（排查音质问题）----------------
@@ -237,6 +253,11 @@ const server = http.createServer(async (req, res) => {
     glog(`录音待命 ${b.device_id}：下一通电话开始后录 ${seconds}s`);
     return json({ ok: true, seconds, armed: true });
   }
+  if (p === '/api/device-log' && req.method === 'GET') {
+    const id = u.searchParams.get('device_id') || '';
+    const n = Math.min(Number(u.searchParams.get('n')) || 200, 500);
+    return json((devLogs.get(id) || []).slice(-n));
+  }
   if (p === '/api/record/list' && req.method === 'GET') {
     try { return json(fs.readdirSync(LOG_DIR).filter(f => f.startsWith('rec-')).sort()); } catch { return json([]); }
   }
@@ -293,6 +314,8 @@ wss.on('connection', (ws, req) => {
         if (ws.role === 'device' && ws.deviceId != null && m.rssi != null) {
           if (m.net) ws.net = m.net;
           if (m.state) ws.state = m.state;
+          if (m.heap != null) ws.heap = m.heap;
+          if (m.ble) ws.ble = m.ble;
           apps.forEach(a => send(a, { type: 'device_signal', device_id: ws.deviceId, rssi: m.rssi, net: ws.net || null, state: ws.state || null }));
         }
         break;
@@ -305,6 +328,20 @@ wss.on('connection', (ws, req) => {
         apps.forEach(a => send(a, { type: 'device_state', device_id: ws.deviceId, state: ws.state, busy: ws.busy }));
         break;
       }
+      case 'device_log': {
+        if (ws.role !== 'device' || !ws.deviceId) break;
+        const text = String(m.text || '').slice(0, 300);
+        ev(ws, 'in', 'device_log', text);
+        devLog(ws.deviceId, text);
+        break;
+      }
+      case 'device_info':
+        if (ws.role === 'device') { ws.net = m.net || ws.net; ws.state = m.state || ws.state; apps.forEach(a => send(a, m)); }
+        break;
+      case 'log_config':
+        // 设备对 set_log 的回执，转给所有 App/后台看即可
+        if (ws.role === 'device') { glog(`设备 ${ws.deviceId} 日志配置 ${JSON.stringify(m.levels)} 上送${m.remote ? '开' : '关'}`); apps.forEach(a => send(a, m)); }
+        break;
       case 'call_reject': {
         // 设备拒接（收到 incoming_call 时已被别的通话占线）：告诉呼叫方忙，清掉配对
         if (ws.role !== 'device') break;
@@ -357,7 +394,7 @@ wss.on('connection', (ws, req) => {
       case 'wifi_config':
         send(ws, { type: 'wifi_test_result', success: true });
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', 'wifi_config', ''); } } break;
-      case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio':
+      case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio': case 'set_log': case 'get_state':
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', m.type, JSON.stringify(m).slice(0, 120)); } } break;
       case 'connect_device': {
         // 同一设备号重连：先把旧连接踢掉，避免僵尸会话；旧连接的 close 里会发现自己已被替代而不动在线表
