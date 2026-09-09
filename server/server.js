@@ -29,6 +29,7 @@ function makeToken() { const t = Math.random().toString(36).slice(2) + Date.now(
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json' };
 
 const devices = new Map();   // device_id -> 设备ws
+const offlineReason = new Map();   // device_id -> 最近一次下线原因（bt_speaker = 主动切到蓝牙音箱模式），App 呼叫时给出更准的提示
 const apps = new Set();
 const admins = new Set();
 const logs = [];             // 全局事件（最近 200）
@@ -360,7 +361,10 @@ wss.on('connection', (ws, req) => {
         if (mode === 'echo') { send(ws, { type: 'call_connected' }); ev(ws, 'out', 'call_connected', 'echo'); }
         else {
           const dev = devices.get(m.device_id);
-          if (!dev) { send(ws, { type: 'call_result', success: false, error: 'device offline 设备不在线' }); ev(ws, 'out', 'call_result', 'offline'); break; }
+          if (!dev) {
+            const why = offlineReason.get(m.device_id) === 'bt_speaker' ? 'device offline 设备处于蓝牙音箱模式，长按设备上的模式键切回对讲' : 'device offline 设备不在线';
+            send(ws, { type: 'call_result', success: false, error: why }); ev(ws, 'out', 'call_result', 'offline'); break;
+          }
           // 设备正在蓝牙通话 / 电话卡通话（设备自己上报的占线）：直接回忙
           if (dev.busy) {
             send(ws, { type: 'call_result', success: false, error: `busy 设备正在通话中(${dev.state || 'busy'})，请稍后再拨` });
@@ -394,7 +398,11 @@ wss.on('connection', (ws, req) => {
       case 'wifi_config':
         send(ws, { type: 'wifi_test_result', success: true });
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', 'wifi_config', ''); } } break;
-      case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio': case 'set_log': case 'get_state':
+      case 'mode_result':
+        // 设备对 set_mode 的回执；success 且切到 bt_speaker 后设备会重启断网，属正常离线
+        if (ws.role === 'device') { glog(`设备 ${ws.deviceId} 切换模式 ${m.mode}：${m.success ? '成功' : '失败 ' + (m.error || '')}${m.note ? '（' + m.note + '）' : ''}`); if (m.success && m.mode === 'bt_speaker') ws.offlineReason = 'bt_speaker'; apps.forEach(a => send(a, m)); }
+        break;
+      case 'set_volume': case 'set_speaker_volume': case 'factory_reset': case 'switch_network': case 'pairing_gpio': case 'set_log': case 'get_state': case 'set_mode':
         if (mode === 'relay') { const d = devices.get(m.device_id); if (d) { send(d, m); ev(d, 'out', m.type, JSON.stringify(m).slice(0, 120)); } } break;
       case 'connect_device': {
         // 同一设备号重连：先把旧连接踢掉，避免僵尸会话；旧连接的 close 里会发现自己已被替代而不动在线表
@@ -420,8 +428,9 @@ wss.on('connection', (ws, req) => {
       // 只有在线表里登记的还是"自己"时才算下线；若已被同号新连接替代，不能把新连接删掉
       if (devices.get(ws.deviceId) === ws) {
         devices.delete(ws.deviceId);
-        apps.forEach(a => send(a, { type: 'device_offline', device_id: ws.deviceId }));
-        glog(`设备下线 ${ws.deviceId}`); pushEvent('device', { device_id: ws.deviceId, online: false });
+        if (ws.offlineReason) offlineReason.set(ws.deviceId, ws.offlineReason); else offlineReason.delete(ws.deviceId);
+        apps.forEach(a => send(a, { type: 'device_offline', device_id: ws.deviceId, reason: ws.offlineReason || undefined }));
+        glog(`设备下线 ${ws.deviceId}${ws.offlineReason ? '（' + ws.offlineReason + '）' : ''}`); pushEvent('device', { device_id: ws.deviceId, online: false, reason: ws.offlineReason });
       } else {
         glog(`设备 ${ws.deviceId} 旧连接关闭（已被新连接替代，仍在线）`);
       }
